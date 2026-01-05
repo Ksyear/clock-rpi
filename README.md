@@ -66,7 +66,7 @@ clock-rpi/
 ### 1. 저장소 클론
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/clock-rpi.git
+git clone https://github.com/Ksyear/clock-rpi.git
 cd clock-rpi
 ```
 
