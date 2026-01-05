@@ -72,7 +72,13 @@ cd clock-rpi
 
 ### 2. 컴파일
 
-프로젝트 루트 디렉토리에서 다음 명령 실행
+#### Makefile 사용 (권장)
+
+```bash
+make
+```
+
+#### 직접 컴파일
 
 ```bash
 g++ -I./include -O3 clock.cpp -o clock -L./lib -lrgbmatrix -lrt -lm -lpthread
@@ -88,6 +94,12 @@ g++ -I./include -O3 clock.cpp -o clock -L./lib -lrgbmatrix -lrt -lm -lpthread
 | `-L./lib` | 컴파일된 라이브러리 파일(`.a`) 위치 지정 |
 | `-lrgbmatrix` | RGB 매트릭스 라이브러리 링크 |
 | `-lrt -lm -lpthread` | 실시간, 수학, 쓰레드 라이브러리 링크 |
+
+#### 빌드 정리
+
+```bash
+make clean
+```
 
 ---
 
