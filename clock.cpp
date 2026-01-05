@@ -1,3 +1,17 @@
+/*
+ * Raspberry Pi LED Matrix Clock
+ * 
+ * This project utilizes the rpi-rgb-led-matrix library
+ * (https://github.com/hzeller/rpi-rgb-led-matrix)
+ * Original code by Henner Zeller, licensed under GPL-2.0.
+ * 
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; version 2 of the License.
+ * 
+ * See the COPYING file for the full license text.
+ */
+
 #include "led-matrix.h"
 #include "graphics.h"
 #include <iostream>
