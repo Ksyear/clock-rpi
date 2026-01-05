@@ -214,6 +214,6 @@ This project uses the rpi-rgb-led-matrix library
 Original code by Henner Zeller, licensed under GPL-2.0.
 ```
 
->  **GPL-2.0 의무사항**:
+>  **GPL-2.0 의무사항**
 > - 원본 코드의 저작권 문구와 라이선스 고지를 유지해야 합니다.
 > - 이 프로젝트를 배포할 경우 소스 코드도 함께 공개해야 합니다.
