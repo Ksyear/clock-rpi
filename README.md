@@ -1,4 +1,4 @@
-# 🕐 Raspberry Pi LED Matrix Clock
+# Raspberry Pi LED Matrix Clock
 
 라즈베리 파이와 RGB LED 매트릭스를 사용한 디지털 시계 프로젝트입니다.  
 96x16 (32x16 패널 3개 연결) 크기의 도트 매트릭스에 날짜, 요일, 시간을 표시합니다.
@@ -8,7 +8,7 @@
 
 ---
 
-## 📋 목차
+## 목차
 
 - [기능](#-기능)
 - [하드웨어 요구사항](#-하드웨어-요구사항)
@@ -22,7 +22,7 @@
 
 ---
 
-## ✨ 기능
+## 기능
 
 - **날짜 표시**: `MM-DD` 형식 (예: `01-05`)
 - **요일 표시**: 영문 약어 대문자 (예: `SUN`, `MON`)
@@ -31,7 +31,7 @@
 
 ---
 
-## 🔧 하드웨어 요구사항
+## 하드웨어 요구사항
 
 | 항목 | 사양 |
 |------|------|
@@ -40,12 +40,12 @@
 | **해상도** | 96×16 픽셀 |
 | **전원** | 외부 5V 전원 장치 (6A 이상 권장) |
 
-> ⚠️ **주의**: 96x16 매트릭스는 최대 구동 시 약 6A 이상의 전류를 소모합니다.  
+> **주의**: 96x16 매트릭스는 최대 구동 시 약 6A 이상의 전류를 소모합니다.  
 > 외부 5V 전원 장치를 사용하고, 파이와 GND를 공통으로 연결하세요.
 
 ---
 
-## 📁 프로젝트 구조
+## 프로젝트 구조
 
 ```
 clock-rpi/
@@ -61,7 +61,7 @@ clock-rpi/
 
 ---
 
-## 🛠️ 설치 및 컴파일
+## 설치 및 컴파일
 
 ### 1. 저장소 클론
 
@@ -72,7 +72,7 @@ cd clock-rpi
 
 ### 2. 컴파일
 
-프로젝트 루트 디렉토리에서 다음 명령 실행:
+프로젝트 루트 디렉토리에서 다음 명령 실행
 
 ```bash
 g++ -I./include -O3 clock.cpp -o clock -L./lib -lrgbmatrix -lrt -lm -lpthread
@@ -91,7 +91,7 @@ g++ -I./include -O3 clock.cpp -o clock -L./lib -lrgbmatrix -lrt -lm -lpthread
 
 ---
 
-## 🚀 실행
+## 실행
 
 ```bash
 sudo ./clock --led-rows=16 --led-cols=32 --led-chain=3 --led-brightness=50 --led-slowdown-gpio=2
@@ -107,17 +107,17 @@ sudo ./clock --led-rows=16 --led-cols=32 --led-chain=3 --led-brightness=50 --led
 | `--led-brightness=50` | LED 밝기 50% 제한 (전력 소모 방지) |
 | `--led-slowdown-gpio=2` | GPIO 속도 조절 (신호 노이즈 해결) |
 
-> 💡 **팁**: 밝기를 낮추면 전력 소모를 줄일 수 있습니다.
+> **팁**: 밝기를 낮추면 전력 소모를 줄일 수 있습니다.
 
 ---
 
-## ⚡ 하드웨어 최적화
+## 하드웨어 최적화
 
 ### 1. PWM 간섭 제거
 
 라즈베리 파이의 내장 오디오와 LED 제어용 PWM 타이밍이 충돌하여 화면 깜빡임을 유발할 수 있습니다.
 
-#### 방법 1: 사운드 모듈 블랙리스트 추가
+#### 사운드 모듈 블랙리스트 추가
 
 ```bash
 # 사운드 카드 드라이버를 블랙리스트에 추가
@@ -129,18 +129,18 @@ EOF
 sudo update-initramfs -u
 ```
 
-#### 방법 2: config.txt에서 오디오 비활성화 (권장)
+#### config.txt에서 오디오 비활성화
 
 ```bash
 sudo vi /boot/firmware/config.txt
 ```
 
-다음 라인을 찾아 수정:
+다음 라인을 찾아 수정
 ```
 dtparam=audio=off
 ```
 
-변경 후 재부팅:
+변경 후 재부팅
 ```bash
 sudo reboot
 ```
@@ -159,7 +159,7 @@ sudo reboot
 
 ---
 
-## 🔍 트러블슈팅
+## 트러블슈팅
 
 ### 문제: 화면 깜빡임 / 노이즈 발생
 
@@ -169,27 +169,9 @@ sudo reboot
 1. 위의 [PWM 간섭 제거](#1-pwm-간섭-제거) 단계 수행
 2. `gpio_slowdown` 값 증가 (2 → 3 → 4)
 
-### 문제: 특정 색상이 표시되지 않음 (예: 녹색)
-
-**원인**: 케이블 연결 불량 또는 정전기로 인한 손상
-
-**해결**:
-1. 리본 케이블 연결 상태 확인
-2. 핀 연결이 제대로 되어 있는지 확인 (G1 핀 = Green)
-
-### 문제: 폰트가 예상 위치에 표시되지 않음
-
-**해결**: `clock.cpp`에서 `DrawText` 함수의 좌표(x, y) 값을 패널에 맞게 조정
-
-```cpp
-rgb_matrix::DrawText(canvas, small_font, 3, 7, color1, NULL, date_buf, 0);  // 날짜
-rgb_matrix::DrawText(canvas, small_font, 8, 15, color1, NULL, week_buf, 0); // 요일
-rgb_matrix::DrawText(canvas, large_font, 30, 13, color2, NULL, time_buf, 0); // 시간
-```
-
 ---
 
-## 📖 기술 설명
+## 기술 설명
 
 ### `nanosleep` 사용 이유
 
@@ -211,7 +193,7 @@ rgb_matrix::DrawText(canvas, large_font, 30, 13, color2, NULL, time_buf, 0); // 
 
 ---
 
-## 📜 라이선스 및 출처
+## 라이선스 및 출처
 
 ### Credits / Attribution
 
@@ -232,14 +214,6 @@ This project uses the rpi-rgb-led-matrix library
 Original code by Henner Zeller, licensed under GPL-2.0.
 ```
 
-> ⚠️ **GPL-2.0 의무사항**:
+>  **GPL-2.0 의무사항**:
 > - 원본 코드의 저작권 문구와 라이선스 고지를 유지해야 합니다.
 > - 이 프로젝트를 배포할 경우 소스 코드도 함께 공개해야 합니다.
-
----
-
-## 👤 Author
-
-WiSoft LED Clock Project
-</CodeContent>
-<parameter name="EmptyFile">false
