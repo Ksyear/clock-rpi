@@ -75,6 +75,10 @@ cd clock-rpi
 #### Makefile 사용 (권장)
 
 ```bash
+cd lib
+make
+
+cd ..
 make
 ```
 
