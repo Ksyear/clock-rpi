@@ -10,7 +10,7 @@
  * - Created clock.cpp to implement digital clock functionality.
  * - Restructured directories and filtered necessary library files.
  *
- * Modified by Ksyear on 2026-01-14:
+ * Modified by Ksyear on 2026-01-19:
  * - Added logic to change clock color based on the day of the week (Weekday, Saturday, Sunday).
  *
  * This program is free software; you can redistribute it and/or modify
@@ -25,6 +25,7 @@
 #include <ctime>
 #include <signal.h>
 #include <algorithm>
+#include <string>
 
 using namespace rgb_matrix;
 
@@ -88,16 +89,19 @@ int main(int argc, char *argv[]) {
 
         canvas->Clear();
 
-        if(week_buf == "SUN"){
+        std::string week = week_buf;
+
+        if(week.compare("SUN") == 0){
                 rgb_matrix::DrawText(canvas, small_font, 3, 7, color1, NULL, date_buf, 0);
                 rgb_matrix::DrawText(canvas, small_font, 8, 15, color1, NULL, week_buf, 0);
-        } else if(week_buf == "SAT"){
+        } else if(week.compare("SAT") == 0){
                 rgb_matrix::DrawText(canvas, small_font, 3, 7, color3, NULL, date_buf, 0);
                 rgb_matrix::DrawText(canvas, small_font, 8, 15, color3, NULL, week_buf, 0);
-        } else {
+        }else{
                 rgb_matrix::DrawText(canvas, small_font, 3, 7, color2, NULL, date_buf, 0);
                 rgb_matrix::DrawText(canvas, small_font, 8, 15, color2, NULL, week_buf, 0);
         }
+
 
         rgb_matrix::DrawText(canvas, large_font, 30, 13, color2, NULL, time_buf, 0);
 
