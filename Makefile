@@ -12,8 +12,11 @@ CXX=g++
 CXXFLAGS=-I$(RGB_INCDIR) -O3 -std=c++17 -Wall
 LDFLAGS=-L$(RGB_LIBDIR) -l$(RGB_LIBRARY_NAME) -lrt -lm -lpthread
 
-CLOCK_SRCS=clock.cpp bus.cpp layout.cpp
-HEADERS=bus.h layout.h
+# Screens: screen.cpp picks the mode; one file per mode.
+SCREEN_SRCS=screen.cpp screen_alternate.cpp screen_rotate.cpp screen_fixed.cpp
+COMMON_SRCS=bus.cpp settings.cpp layout_common.cpp $(SCREEN_SRCS)
+CLOCK_SRCS=clock.cpp $(COMMON_SRCS)
+HEADERS=bus.h settings.h layout_common.h screen.h
 
 all: clock
 
@@ -22,15 +25,18 @@ clock: $(CLOCK_SRCS) $(HEADERS) $(RGB_LIBRARY)
 
 # Development tool: draws the screen as text. Builds on Linux and macOS without
 # the LED library (only the font and text drawing sources are compiled in).
-PREVIEW_SRCS=preview.cpp bus.cpp layout.cpp $(RGB_LIBDIR)/bdf-font.cc $(RGB_LIBDIR)/graphics.cc
+PREVIEW_SRCS=preview.cpp $(COMMON_SRCS) $(RGB_LIBDIR)/bdf-font.cc $(RGB_LIBDIR)/graphics.cc
 
 preview: $(PREVIEW_SRCS) $(HEADERS)
 	$(CXX) $(CXXFLAGS) $(PREVIEW_SRCS) -o preview -lpthread
 
-# Runs the parser tests and checks that no screen state draws off the panel.
+# Runs the Python tests, checks that no frame of any mode draws off the panel or
+# over itself, and compares the mode timelines with the expected ones.
 check: preview
 	python3 -I tests/test_busfetch.py
-	./preview > /dev/null && echo "preview: all screens fit in 96x16"
+	python3 -I tests/test_clockmode.py
+	./preview > /dev/null && echo "preview: every frame fits in 96x16"
+	./preview --timeline | diff -u tests/timeline_expected.txt - && echo "preview: timelines as expected"
 
 clean:
 	rm -f clock preview

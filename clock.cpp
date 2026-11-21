@@ -14,7 +14,8 @@
  * - Added logic to change clock color based on the day of the week (Weekday, Saturday, Sunday).
  *
  * Modified by Ksyear on 2026-11-21:
- * - Added bus arrival display (bus.cpp, busfetch.py) and moved drawing to layout.cpp.
+ * - Added bus arrival display (bus.cpp, busfetch.py) with four display modes
+ *   selected by the `clockmode` command (settings.cpp, screen*.cpp).
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -24,7 +25,9 @@
 #include "led-matrix.h"
 #include "graphics.h"
 #include "bus.h"
-#include "layout.h"
+#include "layout_common.h"
+#include "screen.h"
+#include "settings.h"
 #include <iostream>
 #include <time.h>
 #include <ctime>
@@ -67,13 +70,20 @@ int main(int argc, char *argv[]) {
     signal(SIGINT, InterruptHandler);
     signal(SIGTERM, InterruptHandler);
 
+    // Display mode (0 off, 1 alternate, 2 rotate, 3 fixed) comes from ./display.conf,
+    // written by `./clockmode`; it is re-read about once a second.
+    SettingsFile settings("./display.conf");
+    settings.Poll(MonotonicSeconds());
+
     // Bus arrivals are fetched by ./busfetch.py in a background thread, so the
     // network never blocks this loop. Without ./bus.conf the screen stays the
     // classic clock. Relative paths are used on purpose: after CreateFromOptions()
     // the process runs as `daemon`, which can only reach the working directory.
     // (The feed is intentionally never deleted; its thread may outlive main().)
     BusFeed *bus = new BusFeed("exec timeout -k 5 20 python3 -I ./busfetch.py", "./bus.conf");
+    bus->SetEnabled(settings.Get().mode != DisplayMode::kOff);
     bus->Start();
+    ClockScreen screen;
 
     FrameCanvas *canvas = matrix->CreateFrameCanvas();
 
@@ -86,11 +96,12 @@ int main(int argc, char *argv[]) {
         struct tm *ltm = localtime(&now);
 
         const double mono = MonotonicSeconds();
-        const BusView view = ComputeBusView(bus->Snapshot(), mono);
-        const bool blink_on = (static_cast<long long>(mono * 2) % 2) == 0;
+        if (settings.Poll(mono)) {
+            bus->SetEnabled(settings.Get().mode != DisplayMode::kOff);
+        }
 
         canvas->Clear();
-        DrawClockScreen(canvas, fonts, *ltm, view, blink_on);
+        screen.Draw(canvas, fonts, *ltm, bus->Snapshot(), settings.Get(), mono);
         canvas = matrix->SwapOnVSync(canvas);
 
         nanosleep(&sleep_time, NULL);

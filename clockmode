@@ -1,0 +1,183 @@
+#!/usr/bin/env python3
+"""clockmode - LED 시계의 버스 표시 방식을 바꾸는 명령.
+
+Copyright (C) 2026 Ksyear
+Licensed under the GNU General Public License v2.0 (see COPYING).
+
+설정은 이 스크립트와 같은 폴더의 display.conf 에 저장되고, 시계가 1초마다 확인하므로
+sudo 나 서비스 재시작 없이 약 1초 안에 LED 에 반영됩니다.
+
+기본값과 허용 범위는 settings.h / settings.cpp 와 같아야 합니다
+(tests/test_clockmode.py 가 확인합니다).
+"""
+
+import argparse
+import os
+import re
+import sys
+
+MODES = {
+    "0": "off", "off": "off",
+    "1": "alternate", "alternate": "alternate",
+    "2": "rotate", "rotate": "rotate",
+    "3": "fixed", "fixed": "fixed",
+}
+MODE_NUMBER = {"off": 0, "alternate": 1, "rotate": 2, "fixed": 3}
+MODE_TEXT = {
+    "off": "원래 시계만 표시 (버스 API 호출 없음)",
+    "alternate": "시계 HH:MM:SS <-> 정류장 전체 버스 화면을 번갈아 표시",
+    "rotate": "날짜 | HH:MM | 오른쪽 버스 정보가 노선별로 돌아가며 바뀜",
+    "fixed": "날짜 | HH:MM | 오른쪽에 한 노선만 고정 표시",
+}
+
+DEFAULTS = {"MODE": "rotate", "ROUTE": "102", "ALT_CLOCK_SECS": 15,
+            "ALT_BUS_SECS": 5, "ROTATE_SECS": 3}
+LIMITS = {"ALT_CLOCK_SECS": (5, 300), "ALT_BUS_SECS": (2, 30), "ROTATE_SECS": (2, 30)}
+ROUTE_RE = re.compile(r"^[0-9A-Z-]{1,4}$")
+INT_RE = re.compile(r"^[+-]?[0-9]+$")  # what strtol() in settings.cpp accepts
+
+DEFAULT_FILE = os.path.join(os.path.dirname(os.path.realpath(__file__)), "display.conf")
+
+
+def parse(text):
+    """Same rules as ParseDisplaySettings() in settings.cpp."""
+    s = dict(DEFAULTS)
+    for line in text.splitlines():
+        line = line.split("#", 1)[0]
+        if "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key, value = key.strip().upper(), value.strip()
+        if key == "MODE":
+            s["MODE"] = MODES.get(value.lower(), DEFAULTS["MODE"])
+        elif key == "ROUTE":
+            s["ROUTE"] = value.upper() if ROUTE_RE.match(value.upper()) else DEFAULTS["ROUTE"]
+        elif key in LIMITS:
+            lo, hi = LIMITS[key]
+            if INT_RE.match(value):
+                s[key] = max(lo, min(hi, int(value)))
+            else:
+                s[key] = DEFAULTS[key]
+    return s
+
+
+def load(path):
+    try:
+        with open(path, encoding="utf-8") as f:
+            return parse(f.read()), True
+    except OSError:
+        return dict(DEFAULTS), False
+
+
+def save(path, s):
+    text = (
+        "# LED 시계 표시 방식. ./clockmode 명령으로 바꾸세요 (직접 고쳐도 됩니다).\n"
+        "MODE=%s\nROUTE=%s\nALT_CLOCK_SECS=%d\nALT_BUS_SECS=%d\nROTATE_SECS=%d\n"
+        % (s["MODE"], s["ROUTE"], s["ALT_CLOCK_SECS"], s["ALT_BUS_SECS"], s["ROTATE_SECS"]))
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        f.write(text)
+    os.chmod(tmp, 0o644)   # the clock runs as `daemon` and must be able to read it
+    os.replace(tmp, path)  # atomic: the clock never sees a half-written file
+
+
+def dump(s):
+    return "mode=%s route=%s alt_clock=%d alt_bus=%d rotate=%d" % (
+        s["MODE"], s["ROUTE"], s["ALT_CLOCK_SECS"], s["ALT_BUS_SECS"], s["ROTATE_SECS"])
+
+
+def describe(s, path, exists):
+    mode = s["MODE"]
+    lines = ["현재 모드: %d (%s) - %s" % (MODE_NUMBER[mode], mode, MODE_TEXT[mode])]
+    if mode == "alternate":
+        lines.append("  시계 %d초 -> 버스 화면 %d초 (노선 6개씩, 7개 이상이면 2쪽)"
+                     % (s["ALT_CLOCK_SECS"], s["ALT_BUS_SECS"]))
+    elif mode == "rotate":
+        lines.append("  노선당 %d초씩 번호순으로 표시" % s["ROTATE_SECS"])
+    elif mode == "fixed":
+        lines.append("  고정 노선: %s" % s["ROUTE"])
+    lines.append("설정 파일: %s%s" % (path, "" if exists else " (없음, 기본값 사용)"))
+    if mode != "off" and not os.path.exists(os.path.join(os.path.dirname(path), "bus.conf")):
+        lines.append("주의: bus.conf 가 없어 버스 정보 없이 원래 시계가 표시됩니다.")
+    return "\n".join(lines)
+
+
+def bounded(key):
+    lo, hi = LIMITS[key]
+
+    def check(value):
+        try:
+            n = int(value)
+        except ValueError:
+            raise argparse.ArgumentTypeError("숫자를 넣어 주세요: %r" % value)
+        if not lo <= n <= hi:
+            raise argparse.ArgumentTypeError("%d~%d 사이로 넣어 주세요: %d" % (lo, hi, n))
+        return n
+    return check
+
+
+def route_arg(value):
+    v = value.upper()
+    if not ROUTE_RE.match(v):
+        raise argparse.ArgumentTypeError("노선은 영문/숫자/- 1~4자입니다: %r" % value)
+    return v
+
+
+def main(argv):
+    p = argparse.ArgumentParser(
+        prog="clockmode",
+        description="LED 시계의 버스 표시 방식을 바꿉니다. 약 1초 안에 반영됩니다.",
+        epilog=("예시:\n"
+                "  ./clockmode               현재 설정 보기\n"
+                "  ./clockmode 1             시계 <-> 전체 버스 화면 번갈아 보기\n"
+                "  ./clockmode 2             오른쪽 버스 정보를 노선별로 순환\n"
+                "  ./clockmode 3             102번만 고정 (--route 로 노선 변경)\n"
+                "  ./clockmode 0             원래 시계만 (API 호출 없음)\n"
+                "  ./clockmode 1 --clock 20 --bus 8\n"
+                "  ./clockmode 3 --route 104\n"
+                "  ./clockmode --defaults    시간/노선을 기본값으로"),
+        formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument("mode", nargs="?", choices=sorted(MODES),
+                   metavar="MODE", help="0|off, 1|alternate, 2|rotate, 3|fixed")
+    p.add_argument("--clock", type=bounded("ALT_CLOCK_SECS"),
+                   help="1안: 시계를 보여 주는 시간(초), 5~300, 기본 15")
+    p.add_argument("--bus", type=bounded("ALT_BUS_SECS"),
+                   help="1안: 버스 화면 한 쪽을 보여 주는 시간(초), 2~30, 기본 5")
+    p.add_argument("--rotate", type=bounded("ROTATE_SECS"),
+                   help="2안: 노선 하나를 보여 주는 시간(초), 2~30, 기본 3")
+    p.add_argument("--route", type=route_arg, help="3안: 고정할 노선, 기본 102")
+    p.add_argument("--defaults", action="store_true", help="시간과 노선을 기본값으로 되돌림")
+    p.add_argument("--file", default=DEFAULT_FILE, help=argparse.SUPPRESS)
+    p.add_argument("--dump", action="store_true", help=argparse.SUPPRESS)
+    a = p.parse_args(argv)
+
+    s, exists = load(a.file)
+    changed = a.defaults or any(v is not None for v in (a.mode, a.clock, a.bus, a.rotate, a.route))
+    if a.defaults:
+        s = dict(DEFAULTS, MODE=s["MODE"])
+    if a.mode is not None:
+        s["MODE"] = MODES[a.mode]
+    for key, value in (("ALT_CLOCK_SECS", a.clock), ("ALT_BUS_SECS", a.bus),
+                       ("ROTATE_SECS", a.rotate), ("ROUTE", a.route)):
+        if value is not None:
+            s[key] = value
+
+    if changed:
+        try:
+            save(a.file, s)
+        except OSError as e:
+            print("설정 파일을 쓸 수 없습니다: %s (%s)" % (a.file, e), file=sys.stderr)
+            return 1
+        exists = True
+
+    if a.dump:
+        print(dump(s))
+    else:
+        print(describe(s, a.file, exists))
+        if changed:
+            print("저장했습니다. LED 에 약 1초 안에 반영됩니다.")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

@@ -18,6 +18,10 @@ SERVICE_KEY=
 #CITY_CODE=25
 #NODE_ID=DJB8002920
 #BUS_STOP_ID=8002920
-# 표시할 노선 번호(쉼표로 구분). 비우면 정류장의 모든 노선 중 가장 빨리 오는 버스
-#ROUTES=102
 #TIMEOUT=8
+
+# 정류장의 모든 노선을 받아 옵니다. 화면에 어떻게 보여 줄지는 ./clockmode 로 바꿉니다.
+#   ./clockmode 1   시계 <-> 전체 버스 화면 번갈아 보기
+#   ./clockmode 2   오른쪽 버스 정보를 노선별로 순환 (기본)
+#   ./clockmode 3   한 노선만 고정 (./clockmode 3 --route 102)
+#   ./clockmode 0   원래 시계만 (API 호출 없음)

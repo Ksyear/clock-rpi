@@ -1,0 +1,73 @@
+== mode 1, 6 routes, from boot
+  0.0 [alternate] CLOCK
+ 15.0 [alternate] BUS 1/1 11:26MIN 102:23MIN 104:23MIN 113:5MIN 117:23MIN 212:35MIN
+ 20.0 [alternate] CLOCK
+ 35.0 [alternate] BUS 1/1 11:26MIN 102:22MIN 104:23MIN 113:5MIN 117:23MIN 212:35MIN
+ 38.1 [alternate] BUS 1/1 11:26MIN 102:22MIN 104:23MIN 113:5MIN 117:22MIN 212:35MIN
+ 40.0 [alternate] CLOCK
+ 55.0 [alternate] BUS 1/1 11:25MIN 102:22MIN 104:22MIN 113:5MIN 117:22MIN 212:34MIN
+ 59.1 [alternate] BUS 1/1 11:25MIN 102:22MIN 104:22MIN 113:4MIN 117:22MIN 212:34MIN
+ 60.0 [alternate] CLOCK
+== mode 1, 8 routes (2 pages)
+  0.0 [alternate] CLOCK
+ 15.0 [alternate] BUS 1/2 11:26MIN 102:23MIN 104:23MIN 113:5MIN 117:23MIN 212:35MIN
+ 20.0 [alternate] BUS 2/2 1002:7MIN B1:11MIN
+ 25.0 [alternate] CLOCK
+ 40.0 [alternate] BUS 1/2 11:26MIN 102:22MIN 104:23MIN 113:5MIN 117:22MIN 212:35MIN
+ 40.1 [alternate] BUS 1/2 11:26MIN 102:22MIN 104:22MIN 113:5MIN 117:22MIN 212:35MIN
+ 45.0 [alternate] BUS 2/2 1002:7MIN B1:10MIN
+== mode 1, 113 passes at 37 s while its page is up
+  0.0 [alternate] CLOCK
+ 15.0 [alternate] BUS 1/1 11:26MIN 102:23MIN 104:23MIN 113:SOON 117:23MIN 212:35MIN
+ 20.0 [alternate] CLOCK
+ 35.0 [alternate] BUS 1/1 11:26MIN 102:22MIN 104:23MIN 113:SOON 117:23MIN 212:35MIN
+ 37.1 [alternate] BUS 1/1 11:26MIN 102:22MIN 104:23MIN 117:23MIN 212:35MIN
+ 38.1 [alternate] BUS 1/1 11:26MIN 102:22MIN 104:23MIN 117:22MIN 212:35MIN
+ 40.0 [alternate] CLOCK
+ 55.0 [alternate] BUS 1/1 11:25MIN 102:22MIN 104:22MIN 117:22MIN 212:34MIN
+ 60.0 [alternate] CLOCK
+== mode 1, key error
+  0.0 [alternate] CLOCK
+ 15.0 [alternate] BUS ERR KEY
+ 20.0 [alternate] CLOCK
+== mode 2, 6 routes
+  0.0 [rotate] SIDE 11 26MIN
+  3.0 [rotate] SIDE 102 23MIN
+  6.0 [rotate] SIDE 104 23MIN
+  9.0 [rotate] SIDE 113 5MIN
+ 12.0 [rotate] SIDE 117 23MIN
+ 15.0 [rotate] SIDE 212 35MIN
+ 18.0 [rotate] SIDE 11 26MIN
+== mode 2, 102 passes at 31 s while it is on screen
+  0.0 [rotate] SIDE 11 26MIN
+  3.0 [rotate] SIDE 102 SOON
+  6.0 [rotate] SIDE 104 23MIN
+  9.0 [rotate] SIDE 11 26MIN
+ 12.0 [rotate] SIDE 102 SOON
+ 15.0 [rotate] SIDE 104 23MIN
+ 18.0 [rotate] SIDE 11 26MIN
+ 21.0 [rotate] SIDE 102 SOON
+ 24.0 [rotate] SIDE 104 23MIN
+ 27.0 [rotate] SIDE 11 26MIN
+ 30.0 [rotate] SIDE 102 SOON
+ 31.1 [rotate] SIDE 104 23MIN
+ 34.1 [rotate] SIDE 11 26MIN
+ 37.1 [rotate] SIDE 104 23MIN
+== mode 3, 102 counts down
+  0.0 [fixed] SIDE 102 3MIN
+ 20.1 [fixed] SIDE 102 2MIN
+ 80.1 [fixed] SIDE 102 1MIN
+140.1 [fixed] SIDE 102 SOON
+== switches: 2 -> 1 at 7 s -> 3 at 12 s -> 0 at 15 s
+  0.0 [rotate] SIDE 11 26MIN
+  3.0 [rotate] SIDE 102 23MIN
+  6.0 [rotate] SIDE 104 23MIN
+  7.0 [alternate] BUS 1/1 11:26MIN 102:23MIN 104:23MIN 113:5MIN 117:23MIN 212:35MIN
+ 12.0 [fixed] SIDE 102 23MIN
+ 15.0 [off] CLOCK
+== holding: same estimate on the next fetch stops the countdown
+  t=0   23MIN
+  t=89  22MIN (counting down)
+  t=90  23MIN holding=1
+  t=179 23MIN (not counting down)
+  t=180 21MIN holding=0 (departed)

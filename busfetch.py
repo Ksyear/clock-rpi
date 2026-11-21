@@ -10,8 +10,13 @@ protocol from stdout:
 
     OK <n>                       n = number of BUS lines that follow (0 = no bus)
     ERR <KIND> <detail>          KIND = CONF | AUTH | LIMIT | NET | PARSE | API
-    LABEL <route>                route label to show when there is no bus line
-    BUS <route> <secs> <stops>   one line per bus, sorted by secs
+    LABEL BUS                    kept for compatibility
+    BUS <route> <secs> <stops>   one line per bus (every route at the stop),
+                                 sorted by secs, at most 12
+
+Route names are reduced to ASCII (the LED fonts have no Hangul): 급행1 -> E1,
+마을1 -> M1, at most 4 characters. Which routes are shown is decided by the
+clock's display mode (`./clockmode`), not here.
 
 Only the Python standard library is used, so nothing has to be installed on the Pi.
 The service key is read from ./bus.conf (never commit that file).
@@ -41,8 +46,6 @@ DEFAULTS = {
     "CITY_CODE": "25",           # TAGO 도시코드: 대전광역시/계룡시
     "NODE_ID": "DJB8002920",     # TAGO 정류소 ID
     "BUS_STOP_ID": "8002920",    # 대전시 BIS 정류소 ID (같은 정류장)
-    # Comma separated route numbers to show. Empty = every route at the stop.
-    "ROUTES": "102",
     "TIMEOUT": "8",
 }
 
@@ -50,7 +53,8 @@ TAGO_URL = ("https://apis.data.go.kr/1613000/ArvlInfoInqireService/"
             "getSttnAcctoArvlPrearngeInfoList")
 DAEJEON_URL = "https://apis.data.go.kr/6300000/arrive/getArrInfoByStopID"
 
-MAX_BUSES = 5
+MAX_BUSES = 12
+ROUTE_PREFIXES = (("급행", "E"), ("마을", "M"))
 
 # data.go.kr gateway error codes (OpenAPI_ServiceResponse / returnReasonCode).
 AUTH_CODES = {"20", "30", "31", "32", "33"}
@@ -81,8 +85,13 @@ def load_conf(path):
     return conf
 
 
-def route_filter(conf):
-    return [r.strip() for r in conf.get("ROUTES", "").split(",") if r.strip()]
+def clean_route(name):
+    """ASCII route label for the LED fonts: 급행1 -> E1, 마을1 -> M1, max 4 chars."""
+    s = "".join(str(name).split())
+    for korean, ascii_prefix in ROUTE_PREFIXES:
+        s = s.replace(korean, ascii_prefix)
+    s = "".join(ch for ch in s.upper() if ch.isascii() and (ch.isalnum() or ch == "-"))
+    return s[:4] or "?"
 
 
 def to_int(value, default=-1):
@@ -225,21 +234,21 @@ def fetch_daejeon(conf):
 PROVIDERS = {"tago": (fetch_tago, parse_tago), "daejeon": (fetch_daejeon, parse_daejeon)}
 
 
-def select(buses, routes):
-    if routes:
-        buses = [b for b in buses if b[0] in routes]
-    return sorted(buses, key=lambda b: b[1])[:MAX_BUSES]
+def select(buses):
+    """Every route at the stop, soonest first, at most MAX_BUSES lines."""
+    cleaned = [(clean_route(route), secs, stops) for route, secs, stops in buses]
+    return sorted(cleaned, key=lambda b: b[1])[:MAX_BUSES]
 
 
-def emit(out, buses, label, error=None):
+def emit(out, buses, error=None):
     if error is not None:
         out.write("ERR %s %s\n" % (error.kind, error.detail.replace(" ", "_") or "-"))
     else:
         out.write("OK %d\n" % len(buses))
-    out.write("LABEL %s\n" % label)
+    out.write("LABEL BUS\n")
     if error is None:
         for route, secs, stops in buses:
-            out.write("BUS %s %d %d\n" % (route.replace(" ", "_"), secs, stops))
+            out.write("BUS %s %d %d\n" % (route, secs, stops))
 
 
 def run(argv, out):
@@ -248,36 +257,32 @@ def run(argv, out):
         if provider not in PROVIDERS:
             out.write("ERR CONF unknown_provider\nLABEL BUS\n")
             return 2
-        routes = route_filter(DEFAULTS)
-        label = routes[0] if routes else "BUS"
         try:
             with open(path, encoding="utf-8") as f:
                 buses = PROVIDERS[provider][1](f.read())
-            emit(out, select(buses, routes), label)
+            emit(out, select(buses))
         except FetchError as e:
-            emit(out, [], label, e)
+            emit(out, [], e)
         return 0
 
     try:
         conf = load_conf(CONF_PATH)
     except FetchError as e:
-        emit(out, [], "BUS", e)
+        emit(out, [], e)
         return 0
 
-    routes = route_filter(conf)
-    label = routes[0] if routes else "BUS"
     last_error = FetchError("CONF", "no_PROVIDERS")
     for name in [p.strip().lower() for p in conf["PROVIDERS"].split(",") if p.strip()]:
         if name not in PROVIDERS:
             last_error = FetchError("CONF", "unknown_provider")
             continue
         try:
-            emit(out, select(PROVIDERS[name][0](conf), routes), label)
+            emit(out, select(PROVIDERS[name][0](conf)))
             return 0
         except FetchError as e:
             sys.stderr.write("busfetch: %s failed: %s %s\n" % (name, e.kind, e.detail))
             last_error = e
-    emit(out, [], label, last_error)
+    emit(out, [], last_error)
     return 0
 
 

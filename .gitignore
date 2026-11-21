@@ -15,6 +15,10 @@ preview
 # 버스 API 인증키가 들어 있는 설정 파일 (절대 커밋하지 않음)
 bus.conf
 
+# ./clockmode 로 바꾸는 표시 모드 (기기마다 다름, 기본값은 코드에 있음)
+display.conf
+display.conf.tmp
+
 # Python 캐시, macOS 파일
 __pycache__/
 .DS_Store
