@@ -31,7 +31,7 @@ using namespace rgb_matrix;
 
 volatile bool interrupt_received = false;
 
-static void InterruptHandler(int signo) {
+static void InterruptHandler(int /*signo*/) {
         interrupt_received = true;
 }
 
@@ -103,7 +103,7 @@ int main(int argc, char *argv[]) {
         }
 
 
-        rgb_matrix::DrawText(canvas, large_font, 30, 13, color2, NULL, time_buf, 0);
+        rgb_matrix::DrawText(canvas, large_font, 30, 13, color4, NULL, time_buf, 0);
 
         canvas = matrix->SwapOnVSync(canvas);
 
