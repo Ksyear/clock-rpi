@@ -163,7 +163,7 @@ DisplaySettings Legacy(DisplayMode m) {
     DisplaySettings s = Mode(m);
     s.rotate_secs = 3;
     s.rotate_within = 99;
-    s.rotate_skip = 0;
+    s.rotate_min = 0;
     s.alt_bus_secs = 5;
     return s;
 }
@@ -355,7 +355,7 @@ void Timelines(const Fonts &fonts, bool text_only) {
              {{7, DisplayMode::kAlternate}, {12, DisplayMode::kFixed}, {15, DisplayMode::kOff}});
 
     // Buses at their terminal (real response, 15:12:58) with the current defaults.
-    Timeline(fonts, text_only, "mode 2, real mix: within 15 min are 102 104 113, 6 s each",
+    Timeline(fonts, text_only, "mode 2, real mix: 3..15 min are 102 104 113, 10 s each",
              Fetched(kMixed), Mode(DisplayMode::kRotate), 20);
     Timeline(fonts, text_only, "mode 1, real mix: 8 s bus page", Fetched(kMixed),
              Mode(DisplayMode::kAlternate), 25);
@@ -376,14 +376,14 @@ void Timelines(const Fonts &fonts, bool text_only) {
              {{10, "OK 1\nLABEL BUS\nBUS 212 990 10 RUN\n"},
               {20, "OK 1\nLABEL BUS\nBUS 212 1030 10 RUN\n"}});
     DisplaySettings keep_close = Mode(DisplayMode::kRotate);
-    keep_close.rotate_skip = 0;
-    Timeline(fonts, text_only, "mode 2 --skip 0, a SOON route stays twice as long (12 s)",
+    keep_close.rotate_min = 0;
+    Timeline(fonts, text_only, "mode 2 --min 0, a SOON route stays twice as long (20 s)",
              Data(0, {{"102", 50, 1}, {"104", 300, 3}}), keep_close, 30);
-    Timeline(fonts, text_only, "mode 2, buses 3 min or less away and SOON are skipped",
-             Data(0, {{"102", 50, 1}, {"104", 239, 3}, {"113", 300, 4}, {"212", 600, 8}}),
+    Timeline(fonts, text_only, "mode 2, buses under 3 min and SOON are skipped (3..15 min)",
+             Data(0, {{"102", 50, 1}, {"104", 179, 3}, {"113", 200, 4}, {"212", 600, 8}}),
              Mode(DisplayMode::kRotate), 40);
     Timeline(fonts, text_only, "mode 2, only close buses left: original clock",
-             Data(0, {{"102", 50, 1}, {"104", 200, 3}}), Mode(DisplayMode::kRotate), 5);
+             Data(0, {{"102", 50, 1}, {"104", 170, 3}}), Mode(DisplayMode::kRotate), 5);
 
     // Quiet hours (default 01:00-05:00).
     Timeline(fonts, text_only, "quiet hours start at 01:00:00 (mode 2, from 00:59:55)",

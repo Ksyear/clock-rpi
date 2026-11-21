@@ -16,7 +16,7 @@ import unittest
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CLOCKMODE = os.path.join(ROOT, "clockmode")
 PREVIEW = os.path.join(ROOT, "preview")
-DEFAULT_DUMP = ("mode=rotate route=102 alt_clock=15 alt_bus=8 rotate=6 within=15 skip=3 "
+DEFAULT_DUMP = ("mode=rotate route=102 alt_clock=15 alt_bus=8 rotate=10 max=15 min=3 "
                 "quiet=01:00-05:00")
 
 
@@ -66,11 +66,11 @@ class ClockModeTest(unittest.TestCase):
     def test_values_are_kept(self):
         self.run_cmd("1", "--clock", "20", "--bus", "10")
         self.run_cmd("3", "--route", "104")
-        self.run_cmd("--within", "20", "--rotate", "60", "--quiet", "23:30-5:30", "--skip", "5")
+        self.run_cmd("--max", "20", "--rotate", "60", "--quiet", "23:30-5:30", "--min", "5")
         self.assertEqual(self.dump(), "mode=fixed route=104 alt_clock=20 alt_bus=10 rotate=60 "
-                                      "within=20 skip=5 quiet=23:30-05:30")
-        self.run_cmd("--skip", "0")
-        self.assertIn(" skip=0 ", self.dump())
+                                      "max=20 min=5 quiet=23:30-05:30")
+        self.run_cmd("--within", "25", "--min", "0")   # --within is the old name of --max
+        self.assertIn(" max=25 min=0 ", self.dump())
         self.run_cmd("--quiet", "off")
         self.assertTrue(self.dump().endswith("quiet=off"))
         self.run_cmd("--defaults")
@@ -85,7 +85,7 @@ class ClockModeTest(unittest.TestCase):
                      ("--route", "12345"), ("--route", "1 2"), ("9",),
                      ("--quiet", "25:00-05:00"), ("--quiet", "05:00-05:00"),
                      ("--quiet", "0100-0500"), ("--quiet", "05:00-01:00"), ("--clock", "5_0"),
-                     ("--skip", "11"), ("--skip", "-1"), ("--within", "5", "--skip", "5")):
+                     ("--min", "11"), ("--min", "-1"), ("--max", "5", "--min", "5")):
             r = self.run_cmd(*args)
             self.assertEqual(r.returncode, 2, args)
         with open(self.path, "rb") as f:
@@ -99,12 +99,12 @@ class ClockModeTest(unittest.TestCase):
     def test_hand_edited_and_broken_files(self):
         self.write("MODE = Alternate   # comment\nroute=b1\nALT_CLOCK_SECS=1000\nROTATE_SECS=abc\n"
                    "QUIET = 23:00-06:00 # night\n")
-        self.assertEqual(self.dump(), "mode=alternate route=B1 alt_clock=300 alt_bus=8 rotate=6 "
-                                      "within=15 skip=3 quiet=23:00-06:00")
+        self.assertEqual(self.dump(), "mode=alternate route=B1 alt_clock=300 alt_bus=8 rotate=10 "
+                                      "max=15 min=3 quiet=23:00-06:00")
         self.write("MODE=7\nROUTE=too_long\nALT_BUS_SECS=1\nALT_CLOCK_SECS=5_0\nQUIET=garbage\n"
-                   "ROTATE_SKIP_MINS=99\n")
-        self.assertEqual(self.dump(), "mode=rotate route=102 alt_clock=15 alt_bus=2 rotate=6 "
-                                      "within=15 skip=10 quiet=01:00-05:00")
+                   "ROTATE_MIN_MINS=99\n")
+        self.assertEqual(self.dump(), "mode=rotate route=102 alt_clock=15 alt_bus=2 rotate=10 "
+                                      "max=15 min=10 quiet=01:00-05:00")
 
     def test_bytes_that_used_to_crash_or_differ(self):
         cases = [

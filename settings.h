@@ -32,9 +32,9 @@ struct DisplaySettings {
     std::string route = "102";  // mode 3
     int alt_clock_secs = 15;    // mode 1: clock screen          (5..300)
     int alt_bus_secs = 8;       // mode 1: each bus page         (2..30)
-    int rotate_secs = 6;        // mode 2: each route            (2..60)
-    int rotate_within = 15;     // mode 2: routes within N min   (5..99)
-    int rotate_skip = 3;        // mode 2: skip buses <= N min and SOON (0..10, 0 = keep)
+    int rotate_secs = 10;       // mode 2: each route            (2..60)
+    int rotate_within = 15;     // mode 2: at most N min away    (5..99)   --max
+    int rotate_min = 3;         // mode 2: at least N min away, SOON left out (0..10) --min
     int quiet_start = 60;       // minutes of day, -1 = no quiet hours (01:00)
     int quiet_end = 300;        // (05:00)
 };
@@ -45,7 +45,7 @@ const char *ModeName(DisplayMode m);
 // Only ASCII is interpreted, lines end at '\n' only (same rules as clockmode).
 DisplaySettings ParseDisplaySettings(const std::string &text);
 
-// "mode=rotate route=102 alt_clock=15 alt_bus=8 rotate=6 within=15 skip=3 quiet=01:00-05:00"
+// "mode=rotate route=102 alt_clock=15 alt_bus=8 rotate=10 max=15 min=3 quiet=01:00-05:00"
 // (same as `clockmode --dump`).
 std::string DumpDisplaySettings(const DisplaySettings &s);
 

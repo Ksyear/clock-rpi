@@ -139,8 +139,8 @@ DisplaySettings ParseDisplaySettings(const std::string &text) {
             s.rotate_secs = ParseInt(value, def.rotate_secs, 2, 60);
         } else if (key == "ROTATE_WITHIN_MINS") {
             s.rotate_within = ParseInt(value, def.rotate_within, 5, 99);
-        } else if (key == "ROTATE_SKIP_MINS") {
-            s.rotate_skip = ParseInt(value, def.rotate_skip, 0, 10);
+        } else if (key == "ROTATE_MIN_MINS") {
+            s.rotate_min = ParseInt(value, def.rotate_min, 0, 10);
         } else if (key == "QUIET") {
             if (!ParseQuiet(value, &s.quiet_start, &s.quiet_end)) {
                 s.quiet_start = def.quiet_start;
@@ -162,9 +162,9 @@ std::string QuietText(const DisplaySettings &s) {
 std::string DumpDisplaySettings(const DisplaySettings &s) {
     char buf[160];
     snprintf(buf, sizeof(buf),
-             "mode=%s route=%s alt_clock=%d alt_bus=%d rotate=%d within=%d skip=%d quiet=%s",
+             "mode=%s route=%s alt_clock=%d alt_bus=%d rotate=%d max=%d min=%d quiet=%s",
              ModeName(s.mode), s.route.c_str(), s.alt_clock_secs, s.alt_bus_secs,
-             s.rotate_secs, s.rotate_within, s.rotate_skip, QuietText(s).c_str());
+             s.rotate_secs, s.rotate_within, s.rotate_min, QuietText(s).c_str());
     return buf;
 }
 

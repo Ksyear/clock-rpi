@@ -62,12 +62,11 @@
   7.0 [alternate] BUS 1/1 11:26MIN 102:23MIN 104:23MIN 113:5MIN 117:23MIN 212:35MIN
  12.0 [fixed] SIDE 102 23MIN
  15.0 [off] CLOCK
-== mode 2, real mix: within 15 min are 102 104 113, 6 s each
+== mode 2, real mix: 3..15 min are 102 104 113, 10 s each
   0.0 [rotate] SIDE 102 8MIN
   2.1 [rotate] SIDE 102 7MIN
-  6.0 [rotate] SIDE 104 14MIN
- 12.0 [rotate] SIDE 113 8MIN
- 18.0 [rotate] SIDE 102 7MIN
+ 10.0 [rotate] SIDE 104 14MIN
+ 20.0 [rotate] SIDE 113 8MIN
 == mode 1, real mix: 8 s bus page
   0.0 [alternate] CLOCK
  15.0 [alternate] BUS 1/1 11:58MIN 102:7MIN 104:14MIN 113:8MIN 117:25MIN 212:20MIN
@@ -93,20 +92,15 @@
   5.1 [rotate] SIDE 212 15MIN
  10.0 [rotate] SIDE 212 16MIN
  20.0 [rotate] SIDE 212 17MIN (next)
-== mode 2 --skip 0, a SOON route stays twice as long (12 s)
+== mode 2 --min 0, a SOON route stays twice as long (20 s)
   0.0 [rotate] SIDE 102 SOON
- 12.0 [rotate] SIDE 104 4MIN
- 18.0 [rotate] SIDE 102 SOON
- 30.0 [rotate] SIDE 104 4MIN
-== mode 2, buses 3 min or less away and SOON are skipped
-  0.0 [rotate] SIDE 113 5MIN
-  0.1 [rotate] SIDE 113 4MIN
-  6.0 [rotate] SIDE 212 9MIN
- 12.0 [rotate] SIDE 113 4MIN
- 18.0 [rotate] SIDE 212 9MIN
- 24.0 [rotate] SIDE 113 4MIN
- 30.0 [rotate] SIDE 212 9MIN
- 36.0 [rotate] SIDE 113 4MIN
+ 20.0 [rotate] SIDE 104 4MIN
+ 30.0 [rotate] SIDE 102 SOON
+== mode 2, buses under 3 min and SOON are skipped (3..15 min)
+  0.0 [rotate] SIDE 113 3MIN
+ 10.0 [rotate] SIDE 212 9MIN
+ 20.0 [rotate] SIDE 113 3MIN
+ 20.1 [rotate] SIDE 212 9MIN
 == mode 2, only close buses left: original clock
   0.0 [rotate] CLOCK
 == quiet hours start at 01:00:00 (mode 2, from 00:59:55)

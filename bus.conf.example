@@ -25,7 +25,7 @@ SERVICE_KEY=
 
 # 정류장의 모든 노선을 받아 옵니다. 화면에 어떻게 보여 줄지는 ./clockmode 로 바꿉니다.
 #   ./clockmode 1   시계 <-> 전체 버스 화면 번갈아 보기
-#   ./clockmode 2   4~15분 안에 오는 노선만 오른쪽에 순환 (기본, --skip 으로 3분 기준 변경)
+#   ./clockmode 2   3~15분 안에 오는 노선만 오른쪽에 10초씩 순환 (기본, --min/--max 로 변경)
 #   ./clockmode 3   한 노선만 고정 (./clockmode 3 --route 102)
 #   ./clockmode 0   원래 시계만 (API 호출 없음)
 # 새벽 중지 시간(기본 01:00~05:00)에는 API 를 부르지 않습니다: ./clockmode --quiet 01:00-05:00

@@ -4,10 +4,10 @@
  * Copyright (C) 2026 Ksyear
  *
  * Same screen as mode 3, but the bus area on the right takes turns showing the
- * routes whose bus comes within `rotate_within` minutes (default 15), in route
- * order, `rotate_secs` each (default 6, twice as long while a bus is SOON).
- * Buses `rotate_skip` minutes or less away (default 3) and SOON buses are left
- * out: they are too close to catch (rotate_skip 0 keeps them).
+ * routes whose bus comes in `rotate_min`..`rotate_within` minutes (default
+ * 3..15), in route order, `rotate_secs` each (default 10, twice as long while a
+ * bus is SOON). Closer buses and SOON ones are too close to catch and are left
+ * out (rotate_min 0 keeps them).
  *
  *   - a route joins at <= within minutes and leaves at >= within + 2
  *   - one route in range: no rotation at all
@@ -44,7 +44,7 @@ std::string RotateScreen::Draw(rgb_matrix::Canvas *c, const ClockFonts &f, const
     if (board.state == BoardState::kData) {
         for (const BusEntry &e : board.entries) {
             if (e.style == EntryStyle::kPassed) continue;
-            if (s.rotate_skip > 0 && (e.style == EntryStyle::kSoon || e.mins <= s.rotate_skip)) {
+            if (s.rotate_min > 0 && (e.style == EntryStyle::kSoon || e.mins < s.rotate_min)) {
                 continue;  // too close to catch
             }
             live.push_back(&e);
