@@ -78,9 +78,11 @@ int main(int argc, char *argv[]) {
     // Bus arrivals are fetched by ./busfetch.py in a background thread, so the
     // network never blocks this loop. Without ./bus.conf the screen stays the
     // classic clock. Relative paths are used on purpose: after CreateFromOptions()
-    // the process runs as `daemon`, which can only reach the working directory.
+    // the process runs as `daemon`, which can only reach the working directory
+    // (it cannot pass through /home/clock). The script goes in on stdin because
+    // python3 opens a script given by name through its absolute path.
     // (The feed is intentionally never deleted; its thread may outlive main().)
-    BusFeed *bus = new BusFeed("exec timeout -k 5 20 python3 -I ./busfetch.py", "./bus.conf");
+    BusFeed *bus = new BusFeed("exec timeout -k 5 20 python3 -I - < ./busfetch.py", "./bus.conf");
     bus->SetEnabled(settings.Get().mode != DisplayMode::kOff);
     bus->Start();
     ClockScreen screen;

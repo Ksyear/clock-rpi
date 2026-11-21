@@ -5,8 +5,9 @@ Copyright (C) 2026 Ksyear
 Licensed under the GNU General Public License v2.0 (see COPYING).
 
 The clock program runs this script about every 90 seconds (from its working
-directory, as the unprivileged `daemon` user) and reads a tiny line-based
-protocol from stdout:
+directory, as the unprivileged `daemon` user, fed on stdin as
+`python3 -I - < ./busfetch.py` because daemon cannot open the absolute path
+/home/clock/...) and reads a tiny line-based protocol from stdout:
 
     OK <n>                       n = number of BUS lines that follow (0 = no bus)
     ERR <KIND> <detail>          KIND = CONF | AUTH | LIMIT | NET | PARSE | API
