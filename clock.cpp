@@ -13,6 +13,9 @@
  * Modified by Ksyear on 2026-01-19:
  * - Added logic to change clock color based on the day of the week (Weekday, Saturday, Sunday).
  *
+ * Modified by Ksyear on 2026-11-21:
+ * - Added bus arrival display (bus.cpp, busfetch.py) and moved drawing to layout.cpp.
+ *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation; version 2 of the License.
@@ -20,12 +23,12 @@
 
 #include "led-matrix.h"
 #include "graphics.h"
+#include "bus.h"
+#include "layout.h"
 #include <iostream>
 #include <time.h>
 #include <ctime>
 #include <signal.h>
-#include <algorithm>
-#include <string>
 
 using namespace rgb_matrix;
 
@@ -59,17 +62,20 @@ int main(int argc, char *argv[]) {
         std::cerr << "Font load failed." << std::endl;
         return 1;
     }
-		
-    Color color1(255, 0, 0);
-    Color color2(0, 255, 0);
-    Color color3(0, 0, 255);
-    Color color4(255, 255, 255);
+    const ClockFonts fonts = { &small_font, &large_font };
 
     signal(SIGINT, InterruptHandler);
     signal(SIGTERM, InterruptHandler);
 
+    // Bus arrivals are fetched by ./busfetch.py in a background thread, so the
+    // network never blocks this loop. Without ./bus.conf the screen stays the
+    // classic clock. Relative paths are used on purpose: after CreateFromOptions()
+    // the process runs as `daemon`, which can only reach the working directory.
+    // (The feed is intentionally never deleted; its thread may outlive main().)
+    BusFeed *bus = new BusFeed("exec timeout -k 5 20 python3 -I ./busfetch.py", "./bus.conf");
+    bus->Start();
+
     FrameCanvas *canvas = matrix->CreateFrameCanvas();
-    char date_buf[12], week_buf[8], time_buf[12];
 
     struct timespec sleep_time;
     sleep_time.tv_sec = 0;
@@ -79,37 +85,18 @@ int main(int argc, char *argv[]) {
         time_t now = time(0);
         struct tm *ltm = localtime(&now);
 
-        strftime(date_buf, sizeof(date_buf), "%m-%d", ltm);
-        strftime(week_buf, sizeof(week_buf), "%a", ltm);
-        strftime(time_buf, sizeof(time_buf), "%H:%M:%S", ltm);
-
-        for (int i = 0; week_buf[i]; i++) {
-                week_buf[i] = toupper(week_buf[i]);
-        }
+        const double mono = MonotonicSeconds();
+        const BusView view = ComputeBusView(bus->Snapshot(), mono);
+        const bool blink_on = (static_cast<long long>(mono * 2) % 2) == 0;
 
         canvas->Clear();
-
-        std::string week = week_buf;
-
-        if(week.compare("SUN") == 0){
-                rgb_matrix::DrawText(canvas, small_font, 3, 7, color1, NULL, date_buf, 0);
-                rgb_matrix::DrawText(canvas, small_font, 8, 15, color1, NULL, week_buf, 0);
-        } else if(week.compare("SAT") == 0){
-                rgb_matrix::DrawText(canvas, small_font, 3, 7, color3, NULL, date_buf, 0);
-                rgb_matrix::DrawText(canvas, small_font, 8, 15, color3, NULL, week_buf, 0);
-        }else{
-                rgb_matrix::DrawText(canvas, small_font, 3, 7, color2, NULL, date_buf, 0);
-                rgb_matrix::DrawText(canvas, small_font, 8, 15, color2, NULL, week_buf, 0);
-        }
-
-
-        rgb_matrix::DrawText(canvas, large_font, 30, 13, color4, NULL, time_buf, 0);
-
+        DrawClockScreen(canvas, fonts, *ltm, view, blink_on);
         canvas = matrix->SwapOnVSync(canvas);
 
         nanosleep(&sleep_time, NULL);
     }
 
+    bus->Stop();
     matrix->Clear();
     delete matrix;
     return 0;

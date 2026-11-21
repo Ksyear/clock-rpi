@@ -1,7 +1,8 @@
 # Raspberry Pi LED Matrix Clock
 
 라즈베리 파이와 RGB LED 매트릭스를 사용한 디지털 시계 프로젝트입니다.  
-96x16 (32x16 패널 3개 연결) 크기의 도트 매트릭스에 날짜, 요일, 시간을 표시합니다.
+96x16 (32x16 패널 3개 연결) 크기의 도트 매트릭스에 날짜, 요일, 시간과 함께  
+한밭대학교 정류장(대전역동광장 방향)의 102번 버스 도착 정보를 표시합니다.
 
 ![LED Clock](https://img.shields.io/badge/Raspberry_Pi-LED_Matrix-red?style=flat-square&logo=raspberrypi)
 ![License](https://img.shields.io/badge/License-GPL--2.0-blue?style=flat-square)
@@ -15,6 +16,7 @@
 - [프로젝트 구조](#프로젝트-구조)
 - [설치 및 컴파일](#설치-및-컴파일)
 - [실행](#실행)
+- [버스 도착 정보](#버스-도착-정보)
 - [하드웨어 최적화](#하드웨어-최적화)
 - [트러블슈팅](#트러블슈팅)
 - [기술 설명](#기술-설명)
@@ -27,7 +29,10 @@
 - **날짜 표시**: `MM-DD` 형식 (예: `01-05`)
 - **요일 표시**: 영문 약어 대문자 (예: `SUN`, `MON`)
 - **시간 표시**: `HH:MM:SS` 형식의 실시간 시계
-- **색상 구분**: 날짜/요일은 빨간색, 시간은 흰색으로 구분하여 가독성 향상
+- **요일별 색상**: 날짜/요일은 평일 초록, 토요일 파랑, 일요일 빨강 / 시간은 흰색
+- **버스 도착 정보**: 102번 버스 번호와 남은 시간(`3MIN`), 곧 도착(`SOON`, 깜빡임) 표시
+  - 버스 정보가 있으면 시간을 `HH:MM`으로 줄이고 오른쪽에 버스 정보를 함께 표시
+  - 인증키가 없거나 운행이 끝나면 원래 화면(`HH:MM:SS`)으로 표시
 
 ---
 
@@ -49,7 +54,13 @@
 
 ```
 clock-rpi/
-├── clock.cpp          # 메인 시계 프로그램 소스 코드
+├── clock.cpp          # 메인 시계 프로그램 (초기화와 화면 갱신 루프)
+├── layout.cpp/.h      # 화면 배치 (날짜·요일·시간·버스 정보 그리기)
+├── bus.cpp/.h         # 버스 정보 백그라운드 스레드와 표시 상태 계산
+├── busfetch.py        # 버스 API 호출 헬퍼 (Python 표준 라이브러리만 사용)
+├── bus.conf.example   # 버스 설정 예시 (bus.conf 로 복사해 인증키 입력)
+├── preview.cpp        # 개발용: LED 없이 화면을 텍스트로 출력
+├── tests/             # busfetch.py 테스트와 실제 API 응답 샘플
 ├── Makefile           # 빌드 설정 파일
 ├── COPYING            # GPL-2.0 라이선스 전문
 ├── include/           # rpi-rgb-led-matrix 헤더 파일
@@ -127,6 +138,75 @@ sudo ./clock --led-rows=16 --led-cols=32 --led-chain=3 --led-brightness=50 --led
 
 ---
 
+## 버스 도착 정보
+
+### 화면 배치
+
+```
+ MM-DD |          | 102     <- 버스 번호 (하늘색)
+  DAY  |  HH:MM   | 3MIN    <- 남은 시간 (주황색), 곧 도착이면 SOON 깜빡임
+```
+
+| 상태 | 표시 |
+|------|------|
+| 정상 | `102` / `3MIN` (남은 시간, 최대 `99MIN`) |
+| 곧 도착 (1정류장 이내 또는 1분 미만) | `102` / `SOON` 깜빡임 |
+| 데이터가 150초 이상 지남 | 남은 시간을 어둡게 표시 |
+| 버스가 지나갔고 새 정보 대기 중 | `102` / `--` |
+| 인증키 오류 / 호출 한도 초과 | `102` / `ERR` (빨간색) |
+| 운행 종료, 인증키 없음, 300초 넘게 갱신 실패 | 원래 시계 화면 (`HH:MM:SS`) |
+
+### 설정
+
+1. 공공데이터포털(data.go.kr)에서 아래 API를 활용신청하고 **일반 인증키**를 확인합니다.
+   - [대전광역시_정류소별 도착정보 조회](https://www.data.go.kr/data/15157920/openapi.do) (기본)
+   - [국토교통부_(TAGO)_버스도착정보](https://www.data.go.kr/data/15098530/openapi.do) (예비)
+2. 프로젝트 폴더에 `bus.conf`를 만들고 인증키를 적습니다.
+
+```bash
+cp bus.conf.example bus.conf
+vi bus.conf          # SERVICE_KEY= 뒤에 인증키 입력
+chmod 644 bus.conf
+```
+
+- `bus.conf`가 생기면 **30초 안에** 버스 정보를 받기 시작합니다. 재시작은 필요 없습니다.
+- `bus.conf`를 지우면 원래 시계 화면으로 돌아갑니다.
+- `bus.conf`는 `.gitignore`에 들어 있습니다. **인증키가 들어 있으니 커밋하지 마세요.**
+
+### 동작 방식
+
+- 시계 프로그램의 백그라운드 스레드가 약 90초마다 `python3 -I ./busfetch.py`를 실행합니다.
+  화면 갱신 루프는 네트워크를 기다리지 않으므로 시계가 멈추지 않습니다.
+- 두 호출 사이에는 남은 시간을 시계 안에서 직접 줄여 가며 표시합니다.
+- 운행하는 버스가 없으면 5분, 실패하면 15초 → 30초 → 60초 간격으로 다시 시도하고,
+  하루 950회를 넘기지 않습니다.
+- 대전시 BIS API를 먼저 쓰고, 실패할 때만 TAGO API를 씁니다.
+  TAGO는 대전시 데이터를 늦게 받아 곧 도착하는 버스가 빠지는 경우가 있었습니다.
+- 정류장: 한밭대학교 (정류소번호 `41690`, 대전시 `8002920`, TAGO `DJB8002920`),
+  대전역동광장 방향입니다. `bus.conf`에서 `ROUTES=`를 비우면 모든 노선 중 가장 빨리 오는 버스를 표시합니다.
+- `clock`은 시작 후 `daemon` 사용자로 권한을 낮춥니다. `daemon`은 홈 폴더를 지나갈 수 없으므로
+  `busfetch.py`와 `bus.conf`는 **작업 폴더 기준 상대 경로**로 읽습니다.
+  (`WorkingDirectory`가 프로젝트 폴더여야 합니다.)
+
+### 확인과 테스트
+
+```bash
+# API 호출 결과 확인 (bus.conf 필요)
+python3 -I busfetch.py
+
+# 서비스 로그에서 버스 상태 확인
+journalctl -u ledclock -f | grep '\[bus\]'
+
+# 개발용: LED 없이 모든 화면 상태를 텍스트로 확인 (macOS에서도 빌드 가능)
+make preview && ./preview
+python3 -I busfetch.py | ./preview -
+
+# 파서 테스트 + 화면이 96x16 안에 들어가는지 검사
+make check
+```
+
+---
+
 ## 하드웨어 최적화
 
 ### 1. PWM 간섭 제거
@@ -185,6 +265,16 @@ sudo reboot
 1. 위의 [PWM 간섭 제거](#1-pwm-간섭-제거) 단계 수행
 2. `gpio_slowdown` 값 증가 (2 → 3 → 4)
 
+### 문제: 버스 정보가 나오지 않음 / `ERR` 표시
+
+1. `python3 -I busfetch.py` 실행 결과 확인
+   - `ERR AUTH 30`: 인증키 미등록. 활용신청 직후에는 등록까지 1시간 정도 걸릴 수 있음
+   - `ERR LIMIT`: 일일 호출 한도 초과. 자정 이후 다시 시도
+   - `ERR NET`: 인터넷 연결 또는 DNS 확인
+   - `OK 0`: 지금 운행 중인 버스가 없음 (정상)
+2. `journalctl -u ledclock | grep '\[bus\]'`로 상태 변화 확인
+3. `bus.conf` 권한이 `644`인지 확인 (`daemon` 사용자가 읽을 수 있어야 함)
+
 ---
 
 ## 기술 설명
@@ -218,6 +308,13 @@ sudo reboot
 - **라이브러리**: [rpi-rgb-led-matrix](https://github.com/hzeller/rpi-rgb-led-matrix)
 - **원작자**: Henner Zeller
 - **라이선스**: GNU General Public License v2.0 (GPL-2.0)
+
+### 데이터 출처
+
+버스 도착 정보는 공공데이터포털(data.go.kr)의 다음 API를 사용합니다.
+
+- 대전광역시_정류소별 도착정보 조회 (제공: 대전광역시)
+- 국토교통부_(TAGO)_버스도착정보 (제공: 국토교통부)
 
 ### 라이선스 정보
 

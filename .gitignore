@@ -8,3 +8,13 @@ clock
 *.so
 .envrc
 .direnv
+
+# 개발용 미리보기 실행 파일
+preview
+
+# 버스 API 인증키가 들어 있는 설정 파일 (절대 커밋하지 않음)
+bus.conf
+
+# Python 캐시, macOS 파일
+__pycache__/
+.DS_Store
