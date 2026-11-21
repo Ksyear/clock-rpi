@@ -26,6 +26,7 @@ const Color kMinutes(255, 160, 0);
 const Color kStale(110, 70, 0);
 const Color kNone(90, 90, 90);
 const Color kError(160, 0, 0);
+const Color kWait(170, 120, 255);
 }  // namespace colors
 
 namespace {

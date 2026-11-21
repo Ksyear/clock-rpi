@@ -16,12 +16,14 @@
 #include <string>
 #include <vector>
 
+#include "settings.h"
+
 struct BusArrival {
     std::string route;     // e.g. "102" (printable ASCII, at most 4 characters)
     int secs;              // seconds until arrival at the time of the fetch
     int stops;             // remaining stops (-1 = unknown)
-    bool holding = false;  // same estimate as the previous fetch: waiting at its
-                           // terminal, so the estimate is not counted down
+    bool waiting = false;  // still at its terminal: `secs` is a timetable estimate
+    int min_secs = 0;      // waiting: never show less than this (the drive here)
 };
 
 enum class BusStatus {
@@ -29,7 +31,7 @@ enum class BusStatus {
     kWaiting,     // config present, first answer not received yet
     kOk,
     kAuthError,   // key not registered / not approved
-    kLimitError,  // daily traffic limit exceeded
+    kLimitError,  // daily traffic limit exceeded (API or our own cap)
     kNetError,    // network / timeout / HTTP error
     kOtherError,  // parse error, unexpected API answer
 };
@@ -40,6 +42,8 @@ struct BusSnapshot {
     double fetched_at = 0;    // MonotonicSeconds() of the last good answer
     std::vector<BusArrival> buses;  // sorted by secs
     std::string label = "BUS";
+    std::string via;          // API that answered ("daejeon", "tago")
+    std::string notes;        // NOTE lines from the helper, space separated
 };
 
 // What the screens show: one entry per route, sorted by RouteLess().
@@ -54,6 +58,7 @@ enum class EntryStyle {
     kStale,   // minutes left, but the data is getting old (dimmed)
     kSoon,    // next stop or under a minute (blinking)
     kPassed,  // every listed bus of this route has passed; waiting for new data
+    kWait,    // still at its terminal: minutes from the timetable (own color)
 };
 
 struct BusEntry {
@@ -86,27 +91,47 @@ std::string MinutesText(const BusEntry &e);
 // Entry for `route`, or NULL.
 const BusEntry *FindEntry(const BusBoard &board, const std::string &route);
 
+// Why the feed is not polling right now.
+enum class FeedPause {
+    kNone,
+    kModeOff,        // ./clockmode 0
+    kClockUnsynced,  // boot before NTP: the wall clock (quiet hours) can't be trusted
+    kQuietHours,     // e.g. 01:00-05:00, starting 30 s early so no helper is running
+};
+
+const char *PauseName(FeedPause p);
+
+// Pure decision used by the render loop every frame.
+FeedPause FeedPauseFor(const DisplaySettings &s, int secs_of_day, bool clock_ok);
+
 // Runs the helper command in a background thread and keeps the latest snapshot.
 // The render loop only calls Snapshot(), which copies a few bytes under a mutex.
 class BusFeed {
 public:
-    BusFeed(const std::string &helper_cmd, const std::string &conf_path);
-    void Start();               // starts a detached thread
-    void Stop();                // asks the thread to finish; does not wait for it
-    void SetEnabled(bool on);   // off: no helper runs, no API calls
+    // start_delay: seconds before the first helper run, so a crash/restart loop
+    // cannot turn into an API request loop.
+    BusFeed(const std::string &helper_cmd, const std::string &conf_path,
+            double start_delay = 20);
+    void Start();                  // starts a detached thread
+    void Stop();                   // asks the thread to finish; does not wait for it
+    void SetPause(FeedPause p, const std::string &why = "");  // no helper runs while paused
     BusSnapshot Snapshot();
+    int Runs();                    // helper runs so far (tests)
 
 private:
     void Run();
-    bool WaitTurn();            // false if Stop() was called
+    bool WaitTurn();               // false if Stop() was called
 
     const std::string helper_cmd_;
     const std::string conf_path_;
+    const double start_delay_;
     std::mutex mu_;
     std::condition_variable cv_;
     bool stop_ = false;
-    bool enabled_ = true;
-    double next_at_ = 0;        // MonotonicSeconds() of the next allowed run
+    FeedPause pause_ = FeedPause::kNone;
+    double next_at_ = 0;           // MonotonicSeconds() of the next allowed run
+    int runs_ = 0;
+    int calls_today_ = 0;
     BusSnapshot snap_;
 };
 

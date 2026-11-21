@@ -7,21 +7,26 @@ Licensed under the GNU General Public License v2.0 (see COPYING).
 설정은 이 스크립트와 같은 폴더의 display.conf 에 저장되고, 시계가 1초마다 확인하므로
 sudo 나 서비스 재시작 없이 약 1초 안에 LED 에 반영됩니다.
 
-기본값과 허용 범위는 settings.h / settings.cpp 와 같아야 합니다
-(tests/test_clockmode.py 가 확인합니다).
+기본값, 허용 범위, 해석 규칙은 settings.h / settings.cpp 와 같아야 합니다
+(tests/test_clockmode.py 가 ./preview --settings 와 비교해 확인합니다).
+파일은 바이트 단위·ASCII 기준으로 읽으므로 깨진 글자가 있어도 멈추지 않습니다.
 """
 
 import argparse
 import os
 import re
+import stat
 import sys
+import tempfile
+import time
 
 MODES = {
-    "0": "off", "off": "off",
-    "1": "alternate", "alternate": "alternate",
-    "2": "rotate", "rotate": "rotate",
-    "3": "fixed", "fixed": "fixed",
+    b"0": "off", b"off": "off",
+    b"1": "alternate", b"alternate": "alternate",
+    b"2": "rotate", b"rotate": "rotate",
+    b"3": "fixed", b"fixed": "fixed",
 }
+MODE_ARGS = {k.decode(): v for k, v in MODES.items()}
 MODE_NUMBER = {"off": 0, "alternate": 1, "rotate": 2, "fixed": 3}
 MODE_TEXT = {
     "off": "원래 시계만 표시 (버스 API 호출 없음)",
@@ -30,41 +35,60 @@ MODE_TEXT = {
     "fixed": "날짜 | HH:MM | 오른쪽에 한 노선만 고정 표시",
 }
 
-DEFAULTS = {"MODE": "rotate", "ROUTE": "102", "ALT_CLOCK_SECS": 15,
-            "ALT_BUS_SECS": 5, "ROTATE_SECS": 3}
-LIMITS = {"ALT_CLOCK_SECS": (5, 300), "ALT_BUS_SECS": (2, 30), "ROTATE_SECS": (2, 30)}
-ROUTE_RE = re.compile(r"^[0-9A-Z-]{1,4}$")
-INT_RE = re.compile(r"^[+-]?[0-9]+$")  # what strtol() in settings.cpp accepts
+DEFAULTS = {"MODE": "rotate", "ROUTE": "102", "ALT_CLOCK_SECS": 15, "ALT_BUS_SECS": 8,
+            "ROTATE_SECS": 6, "ROTATE_WITHIN_MINS": 15, "QUIET": "01:00-05:00"}
+LIMITS = {"ALT_CLOCK_SECS": (5, 300), "ALT_BUS_SECS": (2, 30), "ROTATE_SECS": (2, 60),
+          "ROTATE_WITHIN_MINS": (5, 99)}
+ROUTE_RE = re.compile(rb"^[0-9A-Z-]{1,4}$")
+INT_RE = re.compile(rb"^[+-]?[0-9]+$")
+QUIET_RE = re.compile(rb"^([0-9]{1,2}):([0-9]{2})-([0-9]{1,2}):([0-9]{2})$")
+MAX_BYTES = 4096   # settings.cpp reads the same amount
 
 DEFAULT_FILE = os.path.join(os.path.dirname(os.path.realpath(__file__)), "display.conf")
 
 
-def parse(text):
-    """Same rules as ParseDisplaySettings() in settings.cpp."""
+def parse_quiet(value):
+    """b"HH:MM-HH:MM" or b"off" -> "HH:MM-HH:MM" / "off", or None if invalid."""
+    if value.lower() == b"off":
+        return "off"
+    m = QUIET_RE.match(value)
+    if not m:
+        return None
+    h1, m1, h2, m2 = (int(g) for g in m.groups())
+    if h1 > 23 or h2 > 23 or m1 > 59 or m2 > 59:
+        return None
+    a, b = h1 * 60 + m1, h2 * 60 + m2
+    if a == b or (b - a) % 1440 > 720:   # empty, or probably start/end swapped
+        return None
+    return "%02d:%02d-%02d:%02d" % (h1, m1, h2, m2)
+
+
+def parse(data):
+    """Same rules as ParseDisplaySettings() in settings.cpp (bytes, ASCII only)."""
     s = dict(DEFAULTS)
-    for line in text.splitlines():
-        line = line.split("#", 1)[0]
-        if "=" not in line:
+    for line in data[:MAX_BYTES].split(b"\n"):
+        line = line.split(b"#", 1)[0]
+        if b"=" not in line:
             continue
-        key, value = line.split("=", 1)
+        key, value = line.split(b"=", 1)
         key, value = key.strip().upper(), value.strip()
-        if key == "MODE":
+        if key == b"MODE":
             s["MODE"] = MODES.get(value.lower(), DEFAULTS["MODE"])
-        elif key == "ROUTE":
-            s["ROUTE"] = value.upper() if ROUTE_RE.match(value.upper()) else DEFAULTS["ROUTE"]
-        elif key in LIMITS:
-            lo, hi = LIMITS[key]
-            if INT_RE.match(value):
-                s[key] = max(lo, min(hi, int(value)))
-            else:
-                s[key] = DEFAULTS[key]
+        elif key == b"ROUTE":
+            s["ROUTE"] = value.upper().decode() if ROUTE_RE.match(value.upper()) else DEFAULTS["ROUTE"]
+        elif key == b"QUIET":
+            s["QUIET"] = parse_quiet(value) or DEFAULTS["QUIET"]
+        elif key.decode("ascii", "replace") in LIMITS:
+            name = key.decode()
+            lo, hi = LIMITS[name]
+            s[name] = max(lo, min(hi, int(value))) if INT_RE.match(value) else DEFAULTS[name]
     return s
 
 
 def load(path):
     try:
-        with open(path, encoding="utf-8") as f:
-            return parse(f.read()), True
+        with open(path, "rb") as f:
+            return parse(f.read(MAX_BYTES)), True
     except OSError:
         return dict(DEFAULTS), False
 
@@ -72,33 +96,89 @@ def load(path):
 def save(path, s):
     text = (
         "# LED 시계 표시 방식. ./clockmode 명령으로 바꾸세요 (직접 고쳐도 됩니다).\n"
-        "MODE=%s\nROUTE=%s\nALT_CLOCK_SECS=%d\nALT_BUS_SECS=%d\nROTATE_SECS=%d\n"
-        % (s["MODE"], s["ROUTE"], s["ALT_CLOCK_SECS"], s["ALT_BUS_SECS"], s["ROTATE_SECS"]))
-    tmp = path + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        f.write(text)
-    os.chmod(tmp, 0o644)   # the clock runs as `daemon` and must be able to read it
-    os.replace(tmp, path)  # atomic: the clock never sees a half-written file
+        "MODE=%(MODE)s\nROUTE=%(ROUTE)s\nALT_CLOCK_SECS=%(ALT_CLOCK_SECS)d\n"
+        "ALT_BUS_SECS=%(ALT_BUS_SECS)d\nROTATE_SECS=%(ROTATE_SECS)d\n"
+        "ROTATE_WITHIN_MINS=%(ROTATE_WITHIN_MINS)d\nQUIET=%(QUIET)s\n" % s)
+    # A fresh, unpredictable temp file in the same directory (no symlink games),
+    # made readable for `daemon`, then atomically renamed over display.conf.
+    fd, tmp = tempfile.mkstemp(prefix=".display.conf.", dir=os.path.dirname(path) or ".")
+    try:
+        with os.fdopen(fd, "wb") as f:
+            os.fchmod(f.fileno(), 0o644)
+            f.write(text.encode("utf-8"))
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
 
 
 def dump(s):
-    return "mode=%s route=%s alt_clock=%d alt_bus=%d rotate=%d" % (
-        s["MODE"], s["ROUTE"], s["ALT_CLOCK_SECS"], s["ALT_BUS_SECS"], s["ROTATE_SECS"])
+    return ("mode=%(MODE)s route=%(ROUTE)s alt_clock=%(ALT_CLOCK_SECS)d "
+            "alt_bus=%(ALT_BUS_SECS)d rotate=%(ROTATE_SECS)d within=%(ROTATE_WITHIN_MINS)d "
+            "quiet=%(QUIET)s" % s)
 
 
-def describe(s, path, exists):
+def in_quiet(quiet, minutes):
+    if quiet == "off":
+        return False
+    a = int(quiet[0:2]) * 60 + int(quiet[3:5])
+    b = int(quiet[6:8]) * 60 + int(quiet[9:11])
+    return a <= minutes < b if a < b else (minutes >= a or minutes < b)
+
+
+def key_warning(folder):
+    """bus.conf holds the service key: warn if other users could read it."""
+    path = os.path.join(folder, "bus.conf")
+    try:
+        mode = os.stat(path).st_mode
+    except OSError:
+        return None
+    if not mode & stat.S_IROTH:
+        return None
+    d = os.path.realpath(folder)
+    while True:
+        try:
+            if not os.stat(d).st_mode & stat.S_IXOTH:
+                return None            # some parent folder blocks other users
+        except OSError:
+            return None
+        parent = os.path.dirname(d)
+        if parent == d:
+            break
+        d = parent
+    return ("주의: bus.conf(인증키)를 다른 사용자도 읽을 수 있습니다. "
+            "chmod 640 bus.conf 와 README 의 보안 항목을 참고하세요.")
+
+
+def describe(s, path, exists, now_minutes):
     mode = s["MODE"]
     lines = ["현재 모드: %d (%s) - %s" % (MODE_NUMBER[mode], mode, MODE_TEXT[mode])]
     if mode == "alternate":
         lines.append("  시계 %d초 -> 버스 화면 %d초 (노선 6개씩, 7개 이상이면 2쪽)"
                      % (s["ALT_CLOCK_SECS"], s["ALT_BUS_SECS"]))
     elif mode == "rotate":
-        lines.append("  노선당 %d초씩 번호순으로 표시" % s["ROTATE_SECS"])
+        lines.append("  %d분 안에 오는 노선만 %d초씩 번호순으로 표시 (곧 도착은 2배)"
+                     % (s["ROTATE_WITHIN_MINS"], s["ROTATE_SECS"]))
     elif mode == "fixed":
         lines.append("  고정 노선: %s" % s["ROUTE"])
+    if s["QUIET"] == "off":
+        lines.append("새벽 중지: 없음 (항상 버스 정보를 받습니다)")
+    else:
+        now = "지금은 중지 시간입니다" if in_quiet(s["QUIET"], now_minutes) else "지금은 동작 중"
+        lines.append("새벽 중지: %s 에는 버스 API 를 부르지 않고 원래 시계 표시 (%s)"
+                     % (s["QUIET"].replace("-", " ~ "), now))
     lines.append("설정 파일: %s%s" % (path, "" if exists else " (없음, 기본값 사용)"))
-    if mode != "off" and not os.path.exists(os.path.join(os.path.dirname(path), "bus.conf")):
+    folder = os.path.dirname(path)
+    if mode != "off" and not os.path.exists(os.path.join(folder, "bus.conf")):
         lines.append("주의: bus.conf 가 없어 버스 정보 없이 원래 시계가 표시됩니다.")
+    warning = key_warning(folder)
+    if warning:
+        lines.append(warning)
     return "\n".join(lines)
 
 
@@ -106,10 +186,9 @@ def bounded(key):
     lo, hi = LIMITS[key]
 
     def check(value):
-        try:
-            n = int(value)
-        except ValueError:
+        if not INT_RE.match(value.encode("utf-8", "replace")):
             raise argparse.ArgumentTypeError("숫자를 넣어 주세요: %r" % value)
+        n = int(value)
         if not lo <= n <= hi:
             raise argparse.ArgumentTypeError("%d~%d 사이로 넣어 주세요: %d" % (lo, hi, n))
         return n
@@ -117,10 +196,25 @@ def bounded(key):
 
 
 def route_arg(value):
-    v = value.upper()
+    v = value.upper().encode("utf-8", "replace")
     if not ROUTE_RE.match(v):
         raise argparse.ArgumentTypeError("노선은 영문/숫자/- 1~4자입니다: %r" % value)
-    return v
+    return v.decode()
+
+
+def quiet_arg(value):
+    q = parse_quiet(value.strip().encode("utf-8", "replace"))
+    if q is None:
+        raise argparse.ArgumentTypeError(
+            "HH:MM-HH:MM (12시간 이하, 예: 01:00-05:00) 또는 off 로 넣어 주세요: %r" % value)
+    return q
+
+
+def now_arg(value):
+    m = re.fullmatch(r"(\d{1,2}):(\d{2})", value)
+    if not m or int(m.group(1)) > 23 or int(m.group(2)) > 59:
+        raise argparse.ArgumentTypeError("HH:MM")
+    return int(m.group(1)) * 60 + int(m.group(2))
 
 
 def main(argv):
@@ -128,37 +222,46 @@ def main(argv):
         prog="clockmode",
         description="LED 시계의 버스 표시 방식을 바꿉니다. 약 1초 안에 반영됩니다.",
         epilog=("예시:\n"
-                "  ./clockmode               현재 설정 보기\n"
-                "  ./clockmode 1             시계 <-> 전체 버스 화면 번갈아 보기\n"
-                "  ./clockmode 2             오른쪽 버스 정보를 노선별로 순환\n"
-                "  ./clockmode 3             102번만 고정 (--route 로 노선 변경)\n"
-                "  ./clockmode 0             원래 시계만 (API 호출 없음)\n"
-                "  ./clockmode 1 --clock 20 --bus 8\n"
+                "  ./clockmode                  현재 설정 보기\n"
+                "  ./clockmode 1                시계 <-> 전체 버스 화면 번갈아 보기\n"
+                "  ./clockmode 2                15분 안에 오는 노선만 오른쪽에 순환 (기본)\n"
+                "  ./clockmode 3                102번만 고정 (--route 로 노선 변경)\n"
+                "  ./clockmode 0                원래 시계만 (API 호출 없음)\n"
+                "  ./clockmode 2 --within 20 --rotate 8\n"
+                "  ./clockmode 1 --clock 20 --bus 10\n"
                 "  ./clockmode 3 --route 104\n"
-                "  ./clockmode --defaults    시간/노선을 기본값으로"),
+                "  ./clockmode --quiet 01:00-05:00   새벽 중지 시간 (off 로 끄기)\n"
+                "  ./clockmode --defaults       시간/노선/중지 시간을 기본값으로"),
         formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("mode", nargs="?", choices=sorted(MODES),
+    p.add_argument("mode", nargs="?", choices=sorted(MODE_ARGS),
                    metavar="MODE", help="0|off, 1|alternate, 2|rotate, 3|fixed")
     p.add_argument("--clock", type=bounded("ALT_CLOCK_SECS"),
                    help="1안: 시계를 보여 주는 시간(초), 5~300, 기본 15")
     p.add_argument("--bus", type=bounded("ALT_BUS_SECS"),
-                   help="1안: 버스 화면 한 쪽을 보여 주는 시간(초), 2~30, 기본 5")
+                   help="1안: 버스 화면 한 쪽을 보여 주는 시간(초), 2~30, 기본 8")
     p.add_argument("--rotate", type=bounded("ROTATE_SECS"),
-                   help="2안: 노선 하나를 보여 주는 시간(초), 2~30, 기본 3")
+                   help="2안: 노선 하나를 보여 주는 시간(초), 2~60, 기본 6")
+    p.add_argument("--within", type=bounded("ROTATE_WITHIN_MINS"),
+                   help="2안: 이 시간(분) 안에 오는 노선만 순환, 5~99, 기본 15")
     p.add_argument("--route", type=route_arg, help="3안: 고정할 노선, 기본 102")
-    p.add_argument("--defaults", action="store_true", help="시간과 노선을 기본값으로 되돌림")
+    p.add_argument("--quiet", type=quiet_arg,
+                   help="새벽 중지 시간 HH:MM-HH:MM 또는 off, 기본 01:00-05:00")
+    p.add_argument("--defaults", action="store_true",
+                   help="시간, 노선, 중지 시간을 기본값으로 되돌림 (모드는 그대로)")
     p.add_argument("--file", default=DEFAULT_FILE, help=argparse.SUPPRESS)
     p.add_argument("--dump", action="store_true", help=argparse.SUPPRESS)
+    p.add_argument("--now", type=now_arg, help=argparse.SUPPRESS)
     a = p.parse_args(argv)
 
     s, exists = load(a.file)
-    changed = a.defaults or any(v is not None for v in (a.mode, a.clock, a.bus, a.rotate, a.route))
+    values = (("ALT_CLOCK_SECS", a.clock), ("ALT_BUS_SECS", a.bus), ("ROTATE_SECS", a.rotate),
+              ("ROTATE_WITHIN_MINS", a.within), ("ROUTE", a.route), ("QUIET", a.quiet))
+    changed = a.defaults or a.mode is not None or any(v is not None for _, v in values)
     if a.defaults:
         s = dict(DEFAULTS, MODE=s["MODE"])
     if a.mode is not None:
-        s["MODE"] = MODES[a.mode]
-    for key, value in (("ALT_CLOCK_SECS", a.clock), ("ALT_BUS_SECS", a.bus),
-                       ("ROTATE_SECS", a.rotate), ("ROUTE", a.route)):
+        s["MODE"] = MODE_ARGS[a.mode]
+    for key, value in values:
         if value is not None:
             s[key] = value
 
@@ -166,14 +269,15 @@ def main(argv):
         try:
             save(a.file, s)
         except OSError as e:
-            print("설정 파일을 쓸 수 없습니다: %s (%s)" % (a.file, e), file=sys.stderr)
+            print("설정 파일을 쓸 수 없습니다: %s (%s)" % (a.file, e.strerror), file=sys.stderr)
             return 1
         exists = True
 
     if a.dump:
         print(dump(s))
     else:
-        print(describe(s, a.file, exists))
+        lt = time.localtime()
+        print(describe(s, a.file, exists, a.now if a.now is not None else lt.tm_hour * 60 + lt.tm_min))
         if changed:
             print("저장했습니다. LED 에 약 1초 안에 반영됩니다.")
     return 0

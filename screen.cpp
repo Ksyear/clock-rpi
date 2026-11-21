@@ -23,6 +23,13 @@ std::string ClockScreen::Draw(rgb_matrix::Canvas *c, const ClockFonts &f, const 
         first_ = false;
     }
 
+    // Quiet hours (default 01:00-05:00): the original clock, whatever the mode or
+    // the data says (the feed is paused at the same time, see FeedPauseFor()).
+    if (InQuietHours(s, t.tm_hour * 3600 + t.tm_min * 60 + t.tm_sec)) {
+        DrawClassicClock(c, f, t);
+        return "CLOCK QUIET";
+    }
+
     switch (s.mode) {
     case DisplayMode::kAlternate: return alt_.Draw(c, f, t, board, s, now);
     case DisplayMode::kRotate:    return rot_.Draw(c, f, t, board, s, now);

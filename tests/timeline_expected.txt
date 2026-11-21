@@ -41,15 +41,12 @@
 == mode 2, 102 passes at 31 s while it is on screen
   0.0 [rotate] SIDE 11 26MIN
   3.0 [rotate] SIDE 102 SOON
-  6.0 [rotate] SIDE 104 23MIN
-  9.0 [rotate] SIDE 11 26MIN
- 12.0 [rotate] SIDE 102 SOON
- 15.0 [rotate] SIDE 104 23MIN
- 18.0 [rotate] SIDE 11 26MIN
- 21.0 [rotate] SIDE 102 SOON
- 24.0 [rotate] SIDE 104 23MIN
- 27.0 [rotate] SIDE 11 26MIN
- 30.0 [rotate] SIDE 102 SOON
+  9.0 [rotate] SIDE 104 23MIN
+ 12.0 [rotate] SIDE 11 26MIN
+ 15.0 [rotate] SIDE 102 SOON
+ 21.0 [rotate] SIDE 104 23MIN
+ 24.0 [rotate] SIDE 11 26MIN
+ 27.0 [rotate] SIDE 102 SOON
  31.1 [rotate] SIDE 104 23MIN
  34.1 [rotate] SIDE 11 26MIN
  37.1 [rotate] SIDE 104 23MIN
@@ -65,9 +62,58 @@
   7.0 [alternate] BUS 1/1 11:26MIN 102:23MIN 104:23MIN 113:5MIN 117:23MIN 212:35MIN
  12.0 [fixed] SIDE 102 23MIN
  15.0 [off] CLOCK
-== holding: same estimate on the next fetch stops the countdown
-  t=0   23MIN
-  t=89  22MIN (counting down)
-  t=90  23MIN holding=1
-  t=179 23MIN (not counting down)
-  t=180 21MIN holding=0 (departed)
+== mode 2, real mix: within 15 min are 102 104 113, 6 s each
+  0.0 [rotate] SIDE 102 8MIN
+  2.1 [rotate] SIDE 102 7MIN
+  6.0 [rotate] SIDE 104 14MIN
+ 12.0 [rotate] SIDE 113 8MIN
+ 18.0 [rotate] SIDE 102 7MIN
+== mode 1, real mix: 8 s bus page
+  0.0 [alternate] CLOCK
+ 15.0 [alternate] BUS 1/1 11:58MIN 102:7MIN 104:14MIN 113:8MIN 117:25MIN 212:20MIN
+ 23.0 [alternate] CLOCK
+== mode 3, waiting 102 counts down to its drive time and stays
+  0.0 [fixed] SIDE 102 3MIN
+ 20.1 [fixed] SIDE 102 2MIN
+== mode 3, waiting 102 leaves, arrives, next one waits
+  0.0 [fixed] SIDE 102 8MIN
+  2.1 [fixed] SIDE 102 7MIN
+ 62.1 [fixed] SIDE 102 6MIN
+130.1 [fixed] SIDE 102 5MIN
+180.0 [fixed] SIDE 102 SOON
+239.1 [fixed] SIDE 102 17MIN
+== mode 2, one route within 15 min: no rotation
+  0.0 [rotate] SIDE 212 5MIN
+  0.1 [rotate] SIDE 212 4MIN
+== mode 2, none within 15 min: soonest bus stays
+  0.0 [rotate] SIDE 212 20MIN (next)
+  0.1 [rotate] SIDE 212 19MIN (next)
+== mode 2, joins at 15 min, stays at 16, leaves at 17
+  0.0 [rotate] SIDE 212 16MIN (next)
+  5.1 [rotate] SIDE 212 15MIN
+ 10.0 [rotate] SIDE 212 16MIN
+ 20.0 [rotate] SIDE 212 17MIN (next)
+== mode 2, a SOON route stays twice as long (12 s)
+  0.0 [rotate] SIDE 102 SOON
+ 12.0 [rotate] SIDE 104 4MIN
+ 18.0 [rotate] SIDE 102 SOON
+ 30.0 [rotate] SIDE 104 4MIN
+== quiet hours start at 01:00:00 (mode 2, from 00:59:55)
+  0.0 [rotate] SIDE 113 5MIN
+  5.0 [rotate] CLOCK QUIET
+== quiet hours end at 05:00:00 (mode 1, key error, from 04:59:50)
+  0.0 [alternate] CLOCK QUIET
+ 10.0 [alternate] CLOCK
+ 15.0 [alternate] BUS ERR KEY
+ 23.0 [alternate] CLOCK
+== feed pause decisions
+  00:59:29 default         none
+  00:59:30 default         quiet hours
+  04:59:59 default         quiet hours
+  05:00:00 default         none
+  23:45 23:30-05:30        quiet hours
+  05:29 23:30-05:30        quiet hours
+  05:30 23:30-05:30        none
+  03:00 quiet off          none
+  14:00 mode off           display mode off
+  14:00 clock not synced   waiting for the clock to sync

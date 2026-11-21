@@ -33,6 +33,7 @@ extern const rgb_matrix::Color kMinutes;  // orange: minutes left
 extern const rgb_matrix::Color kStale;    // dim orange: old data
 extern const rgb_matrix::Color kNone;     // grey: "--", inactive page dot
 extern const rgb_matrix::Color kError;    // dark red: errors
+extern const rgb_matrix::Color kWait;     // lavender: bus still at its terminal (timetable)
 }  // namespace colors
 
 int TextWidth(const rgb_matrix::Font &font, const std::string &s);

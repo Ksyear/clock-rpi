@@ -46,7 +46,11 @@ private:
     std::vector<std::string> queue_;  // routes latched when the bus pages start
 };
 
-// Mode 2: the right-hand bus area shows each route for rotate_secs, in route order.
+// Mode 2: the right-hand bus area shows, in route order, each route whose bus
+// comes within rotate_within minutes, for rotate_secs (twice as long when SOON).
+// A route joins at <= within minutes and leaves at >= within + 2, so a bus near
+// the threshold does not flicker in and out. With no such route the soonest bus
+// is shown without rotating; with no bus at all, the original clock.
 class RotateScreen {
 public:
     void Reset();
@@ -54,6 +58,7 @@ public:
                      const BusBoard &board, const DisplaySettings &s, double now);
 
 private:
+    std::vector<std::string> members_;  // routes in the rotation, route order
     std::string current_;  // tracked by name, so a vanished route is skipped cleanly
     double since_ = 0;
 };

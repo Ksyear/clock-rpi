@@ -12,12 +12,16 @@ clock
 # 개발용 미리보기 실행 파일
 preview
 
-# 버스 API 인증키가 들어 있는 설정 파일 (절대 커밋하지 않음)
+# 버스 API 인증키가 들어 있는 설정 파일과 편집기 백업·스왑 파일 (절대 커밋하지 않음)
 bus.conf
+bus.conf.*
+.bus.conf*
+!bus.conf.example
 
-# ./clockmode 로 바꾸는 표시 모드 (기기마다 다름, 기본값은 코드에 있음)
+# ./clockmode 로 바꾸는 표시 모드와 그 임시 파일 (기기마다 다름, 기본값은 코드에 있음)
 display.conf
-display.conf.tmp
+display.conf.*
+.display.conf*
 
 # Python 캐시, macOS 파일
 __pycache__/

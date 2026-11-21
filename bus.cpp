@@ -10,7 +10,9 @@
 
 #include "bus.h"
 
+#include <errno.h>
 #include <stdio.h>
+#include <string.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -22,23 +24,25 @@
 
 namespace {
 
-// Polling (calls to busfetch.py; each call is one API request).
+// Polling (calls to busfetch.py; each call is one API request, two if the
+// fallback API is also tried — each API has its own 10,000/day limit).
 const double kPollOk = 90;         // a bus is listed
-const double kPollEmpty = 300;     // no bus in service (night)
+const double kPollEmpty = 300;     // no bus in service
 const double kPollAuthError = 600;
 const double kPollLimitError = 1800;
 const double kPollNoConfig = 30;   // waiting for ./bus.conf to appear
-const int kDailyCap = 950;         // safety net below a 1,000/day traffic limit
+const int kDailyCap = 2000;        // ~2.5x normal use (~800/day), far below 10,000
 
 // Display rules.
 const double kStaleAge = 150;      // older data is dimmed
 const double kMaxAge = 300;        // older data is not shown at all
 const double kPassedGrace = 30;    // keep a bus this long after its estimated arrival
-const double kHoldMinGap = 60;     // unchanged estimate after this long = holding
 const int kSoonSecs = 60;
 const int kSoonStops = 1;
 const size_t kMaxEntries = 12;
 const size_t kMaxRouteLen = 4;
+const int kMaxSecs = 86400;
+const int kMaxStops = 500;
 
 const char *StatusName(BusStatus s) {
     switch (s) {
@@ -61,11 +65,11 @@ BusStatus StatusFromKind(const std::string &kind) {
     return BusStatus::kOtherError;
 }
 
-// Keeps printable ASCII only (the BDF fonts have no Hangul) and at most 4 chars.
-std::string CleanRoute(const std::string &s) {
+// Keeps printable ASCII only (the BDF fonts have no Hangul) and at most `max` chars.
+std::string CleanWord(const std::string &s, size_t max = kMaxRouteLen) {
     std::string out;
     for (unsigned char ch : s) {
-        if (ch >= 0x21 && ch <= 0x7E && out.size() < kMaxRouteLen) out += ch;
+        if (ch >= 0x21 && ch <= 0x7E && out.size() < max) out += ch;
     }
     return out;
 }
@@ -134,9 +138,11 @@ bool ParseFetchOutput(const std::string &out, double now, BusSnapshot *snap) {
     head >> word;
     bool ok;
     BusStatus status;
+    long expected = -1;
     if (word == "OK") {
         ok = true;
         status = BusStatus::kOk;
+        if (!(head >> expected) || expected < 0 || expected > 100) return false;
     } else if (word == "ERR") {
         std::string kind;
         head >> kind;
@@ -147,42 +153,51 @@ bool ParseFetchOutput(const std::string &out, double now, BusSnapshot *snap) {
     }
 
     std::vector<BusArrival> buses;
-    std::string label = snap->label;
+    std::string label = snap->label, via, notes;
+    long bus_lines = 0;
     while (std::getline(lines, line)) {
         std::istringstream in(line);
+        word.clear();
         in >> word;
         if (word == "LABEL") {
             in >> label;
+        } else if (word == "VIA") {
+            in >> via;
+        } else if (word == "NOTE") {
+            std::string note;
+            in >> note;
+            if (!notes.empty()) notes += ' ';
+            notes += CleanWord(note, 40);
         } else if (word == "BUS") {
+            ++bus_lines;
             BusArrival b;
-            std::string route;
+            std::string route, kind;
             if (!(in >> route >> b.secs >> b.stops)) continue;
-            b.route = CleanRoute(route);
-            if (!b.route.empty()) buses.push_back(b);
+            if (in >> kind && kind == "WAIT") {  // older helpers print no kind (= RUN)
+                b.waiting = true;
+                if (!(in >> b.min_secs)) b.min_secs = 0;
+            }
+            b.route = CleanWord(route);
+            if (b.route.empty() || b.secs < 0 || b.secs > kMaxSecs ||
+                b.stops < -1 || b.stops > kMaxStops) {
+                continue;
+            }
+            b.min_secs = std::max(0, std::min(b.min_secs, b.secs));
+            buses.push_back(b);
         }
     }
+    if (ok && bus_lines != expected) return false;  // truncated or garbled output
 
     snap->status = status;
-    snap->label = label.empty() ? "BUS" : CleanRoute(label);
+    snap->label = label.empty() ? "BUS" : CleanWord(label);
     if (ok) {
-        // A bus waiting at its terminal keeps exactly the same estimate between
-        // fetches. Counting it down locally would make "23MIN" drop to 22 and
-        // jump back on every fetch, so such buses are marked as holding.
-        if (snap->has_data && now - snap->fetched_at >= kHoldMinGap) {
-            for (BusArrival &b : buses) {
-                for (const BusArrival &p : snap->buses) {
-                    if (p.route == b.route && p.secs == b.secs && p.stops == b.stops) {
-                        b.holding = true;
-                        break;
-                    }
-                }
-            }
-        }
         std::sort(buses.begin(), buses.end(),
                   [](const BusArrival &a, const BusArrival &b) { return a.secs < b.secs; });
         snap->buses = buses;
         snap->has_data = true;
         snap->fetched_at = now;
+        snap->via = CleanWord(via, 12);
+        snap->notes = notes;
     } else if (status == BusStatus::kNoConfig) {
         snap->has_data = false;
         snap->buses.clear();
@@ -209,16 +224,26 @@ BusBoard ComputeBusBoard(const BusSnapshot &snap, double now) {
     // snap.buses is sorted by secs, so the first live bus of a route is its next one.
     std::map<std::string, BusEntry> by_route;
     for (const BusArrival &b : snap.buses) {
-        const double left = b.holding ? b.secs : b.secs - age;
         auto it = by_route.find(b.route);
+        const bool have_live = it != by_route.end() && it->second.style != EntryStyle::kPassed;
+        if (have_live) continue;
+
+        BusEntry e;
+        e.route = b.route;
+        if (b.waiting) {
+            // Timetable estimate: counts down to its departure, then stays at the
+            // drive time until the bus really leaves (no SOON, never "passed").
+            const double left = std::max<double>(b.secs - age, b.min_secs);
+            e.mins = std::max(0, std::min(99, static_cast<int>(left / 60)));
+            e.style = EntryStyle::kWait;
+            by_route[b.route] = e;
+            continue;
+        }
+        const double left = b.secs - age;
         if (left < -kPassedGrace) {
             if (it == by_route.end()) by_route[b.route] = BusEntry{ b.route, 0, EntryStyle::kPassed };
             continue;
         }
-        if (it != by_route.end() && it->second.style != EntryStyle::kPassed) continue;
-
-        BusEntry e;
-        e.route = b.route;
         e.mins = std::max(0, std::min(99, static_cast<int>(left / 60)));
         if ((b.stops >= 0 && b.stops <= kSoonStops) || left < kSoonSecs) {
             e.style = EntryStyle::kSoon;
@@ -236,10 +261,35 @@ BusBoard ComputeBusBoard(const BusSnapshot &snap, double now) {
     return board;
 }
 
-BusFeed::BusFeed(const std::string &helper_cmd, const std::string &conf_path)
-    : helper_cmd_(helper_cmd), conf_path_(conf_path) {}
+const char *PauseName(FeedPause p) {
+    switch (p) {
+    case FeedPause::kNone:          return "none";
+    case FeedPause::kModeOff:       return "display mode off";
+    case FeedPause::kClockUnsynced: return "waiting for the clock to sync";
+    case FeedPause::kQuietHours:    return "quiet hours";
+    }
+    return "?";
+}
+
+FeedPause FeedPauseFor(const DisplaySettings &s, int secs_of_day, bool clock_ok) {
+    if (s.mode == DisplayMode::kOff) return FeedPause::kModeOff;
+    if (!clock_ok) return FeedPause::kClockUnsynced;
+    // 30 s early: a helper lives at most 25 s, so none is running when the window opens.
+    if (InQuietHours(s, secs_of_day) || InQuietHours(s, (secs_of_day + 30) % 86400)) {
+        return FeedPause::kQuietHours;
+    }
+    return FeedPause::kNone;
+}
+
+BusFeed::BusFeed(const std::string &helper_cmd, const std::string &conf_path,
+                 double start_delay)
+    : helper_cmd_(helper_cmd), conf_path_(conf_path), start_delay_(start_delay) {}
 
 void BusFeed::Start() {
+    {
+        std::lock_guard<std::mutex> l(mu_);
+        next_at_ = MonotonicSeconds() + start_delay_;
+    }
     std::thread(&BusFeed::Run, this).detach();
 }
 
@@ -249,11 +299,16 @@ void BusFeed::Stop() {
     cv_.notify_all();
 }
 
-void BusFeed::SetEnabled(bool on) {
+void BusFeed::SetPause(FeedPause p, const std::string &why) {
     std::lock_guard<std::mutex> l(mu_);
-    if (enabled_ == on) return;
-    enabled_ = on;
-    fprintf(stderr, "[bus] polling %s\n", on ? "resumed" : "paused (display mode off)");
+    if (pause_ == p) return;
+    if (p == FeedPause::kNone) {
+        fprintf(stderr, "[bus] polling resumed, %d call(s) today\n", calls_today_);
+    } else {
+        fprintf(stderr, "[bus] polling paused (%s%s%s), %d call(s) today\n", PauseName(p),
+                why.empty() ? "" : " ", why.c_str(), calls_today_);
+    }
+    pause_ = p;
     cv_.notify_all();
 }
 
@@ -262,49 +317,74 @@ BusSnapshot BusFeed::Snapshot() {
     return snap_;
 }
 
+int BusFeed::Runs() {
+    std::lock_guard<std::mutex> l(mu_);
+    return runs_;
+}
+
 bool BusFeed::WaitTurn() {
     std::unique_lock<std::mutex> l(mu_);
     for (;;) {
         if (stop_) return false;
-        if (enabled_) {
+        if (pause_ == FeedPause::kNone) {
             const double wait = next_at_ - MonotonicSeconds();
             if (wait <= 0) return true;
             cv_.wait_for(l, std::chrono::duration<double>(wait));
         } else {
-            cv_.wait(l);
+            cv_.wait(l);  // paused: no wake-ups, no helper, no requests
         }
     }
 }
 
 void BusFeed::Run() {
+    // The library drops root to `daemon` before this thread starts. If that did
+    // not happen (e.g. --led-no-drop-privs), never run network code as root.
+    if (geteuid() == 0) {
+        fprintf(stderr, "[bus] helper disabled: running as root "
+                        "(start without --led-no-drop-privs)\n");
+        return;
+    }
+
     int failures = 0;
     int day = -1;
-    int calls_today = 0;
-    BusStatus logged_status = BusStatus::kWaiting;
-    size_t logged_count = static_cast<size_t>(-1);
+    bool cap_logged = false;
+    std::string logged;
 
     while (WaitTurn()) {
         BusSnapshot snap = Snapshot();  // only this thread writes snap_
         double next;
+        std::string detail;
 
         time_t t = time(NULL);
         struct tm lt;
         localtime_r(&t, &lt);
         if (lt.tm_yday != day) {
             day = lt.tm_yday;
-            calls_today = 0;
+            std::lock_guard<std::mutex> l(mu_);
+            calls_today_ = 0;
+            cap_logged = false;
         }
 
         if (access(conf_path_.c_str(), R_OK) != 0) {
+            detail = std::string(" (") + conf_path_ + ": " + strerror(errno) + ")";
             snap.status = BusStatus::kNoConfig;
             snap.has_data = false;
             snap.buses.clear();
             next = kPollNoConfig;
-        } else if (calls_today >= kDailyCap) {
+        } else if (calls_today_ >= kDailyCap) {
+            if (!cap_logged) {
+                fprintf(stderr, "[bus] daily self-cap reached (%d runs), waiting for midnight\n",
+                        kDailyCap);
+                cap_logged = true;
+            }
             snap.status = BusStatus::kLimitError;
             next = 60;  // re-check for the date change
         } else {
-            ++calls_today;
+            {
+                std::lock_guard<std::mutex> l(mu_);
+                ++calls_today_;
+                ++runs_;
+            }
             const std::string out = RunCommand(helper_cmd_);
             if (!ParseFetchOutput(out, MonotonicSeconds(), &snap)) {
                 snap.status = BusStatus::kOtherError;
@@ -314,10 +394,12 @@ void BusFeed::Run() {
                 failures = 0;
                 next = snap.buses.empty() ? kPollEmpty : kPollOk;
                 break;
-            case BusStatus::kNoConfig:
-                --calls_today;  // no API request was made
+            case BusStatus::kNoConfig: {
+                std::lock_guard<std::mutex> l(mu_);
+                --calls_today_;  // no API request was made
                 next = kPollNoConfig;
                 break;
+            }
             case BusStatus::kAuthError:   next = kPollAuthError; break;
             case BusStatus::kLimitError:  next = kPollLimitError; break;
             default:
@@ -328,18 +410,26 @@ void BusFeed::Run() {
             }
         }
 
+        int waiting = 0;
+        for (const BusArrival &b : snap.buses) waiting += b.waiting ? 1 : 0;
+        int calls;
         {
             std::lock_guard<std::mutex> l(mu_);
             if (stop_) return;
             snap_ = snap;
             next_at_ = MonotonicSeconds() + next;
+            calls = calls_today_;
         }
 
-        if (snap.status != logged_status || snap.buses.size() != logged_count) {
-            fprintf(stderr, "[bus] %s, %zu bus(es), %d call(s) today, next in %.0fs\n",
-                    StatusName(snap.status), snap.buses.size(), calls_today, next);
-            logged_status = snap.status;
-            logged_count = snap.buses.size();
+        // One journal line per change of state, never per poll.
+        char line[256];
+        snprintf(line, sizeof(line), "[bus] %s%s%s, %zu bus(es) (%d waiting)%s%s%s",
+                 StatusName(snap.status), snap.via.empty() ? "" : " via ", snap.via.c_str(),
+                 snap.buses.size(), waiting, detail.c_str(),
+                 snap.notes.empty() ? "" : ", note ", snap.notes.c_str());
+        if (logged != line) {
+            fprintf(stderr, "%s, %d call(s) today, next in %.0fs\n", line, calls, next);
+            logged = line;
         }
     }
 }

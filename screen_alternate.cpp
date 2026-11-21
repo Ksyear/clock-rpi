@@ -10,7 +10,8 @@
  *
  * route (sky blue) right-aligned at x0+20, minutes (orange, no unit) right-
  * aligned at x0+31. A blinking number means the bus is at the next stop or
- * under a minute away. Column 95 holds page dots when there are 2 pages.
+ * under a minute away; lavender means the bus is still at its terminal and the
+ * minutes come from its timetable. Column 95 holds page dots when there are 2 pages.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -112,7 +113,9 @@ std::string AlternateScreen::Draw(rgb_matrix::Canvas *c, const ClockFonts &f,
                              colors::kRoute, NULL, e->route.c_str(), 0);
 
         const std::string mins = std::to_string(e->mins);
-        const Color &color = e->style == EntryStyle::kStale ? colors::kStale : colors::kMinutes;
+        const Color &color = e->style == EntryStyle::kStale ? colors::kStale
+                           : e->style == EntryStyle::kWait  ? colors::kWait
+                                                            : colors::kMinutes;
         if (e->style != EntryStyle::kSoon || blink_on) {
             rgb_matrix::DrawText(c, *f.small, x0 + 31 - TextWidth(*f.small, mins), y,
                                  color, NULL, mins.c_str(), 0);

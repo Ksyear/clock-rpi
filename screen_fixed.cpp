@@ -31,6 +31,7 @@ std::string DrawFixedScreen(rgb_matrix::Canvas *c, const ClockFonts &f, const st
     const rgb_matrix::Color *color = &colors::kMinutes;
     if (e->style == EntryStyle::kStale) color = &colors::kStale;
     else if (e->style == EntryStyle::kPassed) color = &colors::kNone;
+    else if (e->style == EntryStyle::kWait) color = &colors::kWait;
     const bool show = e->style != EntryStyle::kSoon || (static_cast<long long>(now * 2) % 2) == 0;
     DrawSideBus(c, f, t, e->route, text, *color, show);
     return "SIDE " + e->route + " " + text;

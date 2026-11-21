@@ -18,10 +18,14 @@ SERVICE_KEY=
 #CITY_CODE=25
 #NODE_ID=DJB8002920
 #BUS_STOP_ID=8002920
+# 요청 하나의 제한 시간(초), 1~8
 #TIMEOUT=8
+# 기점에서 출발을 기다리는 버스: 출발 시각 + 남은 정류장 x 이 값(초)으로 도착을 추정, 0~300
+#WAIT_STOP_SECS=60
 
 # 정류장의 모든 노선을 받아 옵니다. 화면에 어떻게 보여 줄지는 ./clockmode 로 바꿉니다.
 #   ./clockmode 1   시계 <-> 전체 버스 화면 번갈아 보기
-#   ./clockmode 2   오른쪽 버스 정보를 노선별로 순환 (기본)
+#   ./clockmode 2   15분 안에 오는 노선만 오른쪽에 순환 (기본)
 #   ./clockmode 3   한 노선만 고정 (./clockmode 3 --route 102)
 #   ./clockmode 0   원래 시계만 (API 호출 없음)
+# 새벽 중지 시간(기본 01:00~05:00)에는 API 를 부르지 않습니다: ./clockmode --quiet 01:00-05:00

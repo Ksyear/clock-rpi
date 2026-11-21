@@ -35,6 +35,8 @@ preview: $(PREVIEW_SRCS) $(HEADERS)
 check: preview
 	python3 -I tests/test_busfetch.py
 	python3 -I tests/test_clockmode.py
+	python3 -I tests/test_repo.py
+	./preview --feed-test
 	./preview > /dev/null && echo "preview: every frame fits in 96x16"
 	./preview --timeline | diff -u tests/timeline_expected.txt - && echo "preview: timelines as expected"
 

@@ -102,7 +102,9 @@ make
 #### 직접 컴파일
 
 ```bash
-g++ -I./include -O3 clock.cpp -o clock -L./lib -lrgbmatrix -lrt -lm -lpthread
+g++ -I./include -O3 -std=c++17 clock.cpp bus.cpp settings.cpp layout_common.cpp \
+    screen.cpp screen_alternate.cpp screen_rotate.cpp screen_fixed.cpp \
+    -o clock -L./lib -lrgbmatrix -lrt -lm -lpthread
 ```
 
 #### 컴파일 옵션 설명
@@ -149,48 +151,56 @@ sudo ./clock --led-rows=16 --led-cols=32 --led-chain=3 --led-brightness=50 --led
 ### 표시 모드 바꾸기
 
 ```bash
-./clockmode            # 현재 모드와 시간 설정 보기
+./clockmode            # 현재 모드, 시간 설정, 새벽 중지 시간 보기
 ./clockmode 1          # 1안: 시계 <-> 정류장 전체 버스 화면 번갈아 보기
-./clockmode 2          # 2안: 오른쪽 버스 정보가 노선별로 돌아가며 바뀜 (기본)
+./clockmode 2          # 2안: 15분 안에 오는 노선만 오른쪽에 순환 (기본)
 ./clockmode 3          # 3안: 오른쪽에 102번만 고정
 ./clockmode 0          # 원래 시계만 (버스 API를 부르지 않음)
 
-./clockmode 1 --clock 20 --bus 8   # 1안: 시계 20초, 버스 화면 8초
-./clockmode 2 --rotate 4           # 2안: 노선당 4초
-./clockmode 3 --route 104          # 3안: 104번 고정
-./clockmode --defaults             # 시간/노선을 기본값으로
+./clockmode 2 --within 20 --rotate 8   # 2안: 20분 안에 오는 노선, 노선당 8초
+./clockmode 1 --clock 20 --bus 10      # 1안: 시계 20초, 버스 화면 10초
+./clockmode 3 --route 104              # 3안: 104번 고정
+./clockmode --quiet 01:00-05:00        # 새벽 중지 시간 (off 로 끄기)
+./clockmode --defaults                 # 시간/노선/중지 시간을 기본값으로 (모드는 그대로)
 ./clockmode --help
 ```
 
 - 설정은 `display.conf`에 저장되고, 시계가 1초마다 확인하므로 **sudo도 재시작도 필요 없이 약 1초 안에** 바뀝니다.
-- `display.conf`가 없거나 값이 잘못되면 기본값(2안)으로 동작합니다.
+- `display.conf`가 없거나 값이 잘못되면 기본값으로 동작합니다.
 - 이름으로도 쓸 수 있습니다: `off`, `alternate`, `rotate`, `fixed`.
 
-| 모드 | 화면 | 기본 시간 (바꿀 수 있는 범위) |
+| 모드 | 화면 | 기본값 (바꿀 수 있는 범위) |
 |------|------|------|
 | `0` off | 원래 시계 `HH:MM:SS` | - |
-| `1` alternate | 원래 시계 ↔ 전체 버스 화면 | 시계 15초 (5~300), 버스 화면 한 쪽 5초 (2~30) |
-| `2` rotate | 날짜 \| `HH:MM` \| 노선별 순환 | 노선당 3초 (2~30) |
+| `1` alternate | 원래 시계 ↔ 전체 버스 화면 | 시계 15초 (5~300), 버스 화면 한 쪽 8초 (2~30) |
+| `2` rotate | 날짜 \| `HH:MM` \| 15분 안에 오는 노선 순환 | 15분 (5~99), 노선당 6초 (2~60) |
 | `3` fixed | 날짜 \| `HH:MM` \| 한 노선 고정 | 노선 102 |
+| 공통 | 새벽 중지 시간 | 01:00~05:00 (최대 12시간, `off` 가능) |
 
 ### 1안: 시계 ↔ 전체 버스 화면
 
 ```
-   11 26     102 23     104 23      <- 하늘색: 노선 번호, 주황색: 남은 분
-  113  5     117 23     212 35
+   11 58     102  7     104 14      <- 하늘색: 노선 번호, 숫자: 남은 분
+  113  8     117 25     212 20
 ```
 
-- 시계를 15초 보여 준 뒤 버스 화면을 5초 보여 주고 다시 시계로 돌아갑니다.
+- 시계를 15초 보여 준 뒤 버스 화면을 8초 보여 주고 다시 시계로 돌아갑니다.
 - 한 쪽에 6개 노선(2줄 × 3칸)이 노선 번호순으로 들어갑니다. 7개 이상이면 두 쪽으로 나뉘고 오른쪽 끝에 쪽 표시 점이 생깁니다.
+- 숫자 색: **주황색**은 달리고 있는 버스, **연보라색**은 아직 기점에서 출발을 기다리는 버스(시간표 기준 추정)입니다.
 - 숫자가 **깜빡이면 곧 도착**(1정류장 이내 또는 1분 미만)입니다. 데이터가 오래되면 숫자가 어두워집니다.
 - `./clockmode 1`을 실행하면 버스 화면부터 바로 보여 줍니다.
 
-### 2안: 노선별 순환 (기본)
+### 2안: 15분 안에 오는 노선만 순환 (기본)
 
 ```
- MM-DD |          | 102     <- 노선 번호: 3초마다 11 -> 102 -> 104 -> 113 ... 순서로 바뀜
-  DAY  |  HH:MM   | 23MIN   <- 남은 시간, 곧 도착이면 SOON 깜빡임
+ MM-DD |          | 102     <- 15분 안에 오는 노선만 6초씩 번호순으로 바뀜
+  DAY  |  HH:MM   | 8MIN    <- 남은 시간, 곧 도착이면 SOON 깜빡임
 ```
+
+- 15분 이하가 되면 순환에 들어오고, **17분 이상**이 되어야 빠집니다(15분 근처에서 들락거리지 않게).
+- 해당 노선이 하나면 바뀌지 않습니다. 곧 도착(`SOON`)인 노선은 **2배(12초)** 동안 보여 줍니다.
+- 15분 안에 오는 노선이 없으면 **가장 빨리 오는 노선 하나**를 바꾸지 않고 보여 줍니다
+  (다른 노선이 2분 이상 더 빨라질 때만 바뀜).
 
 ### 3안: 한 노선 고정
 
@@ -203,13 +213,17 @@ sudo ./clock --led-rows=16 --led-cols=32 --led-chain=3 --led-brightness=50 --led
 
 | 상태 | 표시 |
 |------|------|
-| 정상 | `23MIN` (1안은 `23`), 최대 99 |
+| 달리는 중 | `23MIN` (1안은 `23`) 주황색, 최대 99 |
+| 기점에서 출발 대기 중 | `8MIN` **연보라색**: 출발 시각까지 + 정류장당 60초. 출발 시각이 지나면 기점→정류장 시간(102번은 2분)에서 멈춤 |
 | 곧 도착 (1정류장 이내 또는 1분 미만) | `SOON` 깜빡임 (1안은 숫자 깜빡임) |
 | 데이터가 150초 이상 지남 | 남은 시간을 어둡게 표시 |
-| 기점에서 출발 대기 중 (두 번 연속 같은 예상 시간) | 숫자를 줄이지 않고 그대로 표시 |
 | 3안에서 버스가 지나갔고 새 정보 대기 중 | `102` / `--` |
 | 인증키 오류 / 호출 한도 초과 | 2·3안 `ERR`, 1안 `KEY ERROR` / `DAILY LIMIT` 화면 |
-| 운행 종료, 인증키 없음, 300초 넘게 갱신 실패 | 원래 시계 화면 (`HH:MM:SS`) |
+| 새벽 중지 시간, 운행 종료, 인증키 없음, 300초 넘게 갱신 실패 | 원래 시계 화면 (`HH:MM:SS`) |
+
+> **출발 대기 버스**: 대전시 API는 기점에서 기다리는 버스(`MSG_TP=07`)의 "남은 초" 자리에
+> **출발 예정 시각(HHMM)** 을 보냅니다(`1519` = 15:19 출발). 이를 남은 시간으로 바꿔 표시합니다.
+> 정류장당 시간은 `bus.conf`의 `WAIT_STOP_SECS`(기본 60초)로 조정할 수 있습니다.
 
 ### 설정
 
@@ -226,17 +240,24 @@ chmod 644 bus.conf
 
 - `bus.conf`가 생기면 **30초 안에** 버스 정보를 받기 시작합니다. 재시작은 필요 없습니다.
 - `bus.conf`를 지우면 원래 시계 화면으로 돌아갑니다.
-- `bus.conf`는 `.gitignore`에 들어 있습니다. **인증키가 들어 있으니 커밋하지 마세요.**
+- `bus.conf`는 `.gitignore`에 들어 있습니다(편집기 백업 `bus.conf.*`, `.bus.conf.swp` 포함).
+  **인증키가 들어 있으니 커밋하지 마세요.** `make check`가 저장소에 키 모양 문자열이 없는지 검사합니다.
 
 ### 동작 방식
 
 - 시계 프로그램의 백그라운드 스레드가 약 90초마다 `python3 -I - < ./busfetch.py`를 실행합니다.
   화면 갱신 루프는 네트워크를 기다리지 않으므로 시계가 멈추지 않습니다.
 - 두 호출 사이에는 남은 시간을 시계 안에서 직접 줄여 가며 표시합니다.
-- 운행하는 버스가 없으면 5분, 실패하면 15초 → 30초 → 60초 간격으로 다시 시도하고,
-  하루 950회를 넘기지 않습니다.
+- **새벽 중지 시간(기본 01:00~05:00)에는 API를 한 번도 부르지 않습니다.** 시작 30초 전부터 새 호출을 멈추고,
+  화면은 바로 원래 시계가 되며, 끝나는 시각에 즉시 다시 받아 옵니다.
+  (212번 막차가 00:30 전후에 지날 수 있고, 102번 첫차는 05:40 출발이라 이렇게 잡았습니다.)
+- 부팅 직후 시각 동기화(NTP) 전에는 호출하지 않습니다(라즈베리파이는 RTC가 없어 정전 후 시각이 틀릴 수 있음).
+  5분이 지나도 동기화되지 않으면 시스템 시각으로 진행합니다.
+- 프로그램이 시작되고 **20초 뒤에 첫 호출**을 합니다. 프로그램이 반복해서 죽었다 살아나도 하루 호출이 한도를 넘지 않습니다.
+- 운행하는 버스가 없으면 5분, 실패하면 15초 → 30초 → 60초 간격으로 다시 시도합니다.
+  정상 사용은 하루 약 800회이고, 버그에 대비해 **하루 2,000회**에서 멈춥니다(API 한도는 10,000회).
 - 대전시 BIS API를 먼저 쓰고, 실패할 때만 TAGO API를 씁니다.
-  TAGO는 대전시 데이터를 늦게 받아 곧 도착하는 버스가 빠지는 경우가 있었습니다.
+  TAGO는 대전시 데이터를 늦게 받아 곧 도착하는 버스가 빠지는 경우가 있었고, 출발 대기 여부도 알려 주지 않습니다.
 - 정류장: 한밭대학교 (정류소번호 `41690`, 대전시 `8002920`, TAGO `DJB8002920`),
   대전역동광장 방향입니다. API 한 번에 정류장의 모든 노선이 오므로, 모드와 관계없이 호출 횟수는 같습니다.
 - 모드 `0`(off)일 때는 버스 API를 부르지 않습니다.
@@ -246,21 +267,64 @@ chmod 644 bus.conf
   `python3 ./busfetch.py`처럼 파일 이름으로 실행하면 Python이 절대 경로로 파일을 열어
   `Permission denied`가 나므로, 스크립트를 표준 입력으로 넘깁니다.
 
+### 보안
+
+- 인증키는 `bus.conf`에만 있고, HTTPS로만 보냅니다. 리다이렉트·프록시·http 주소는 따르지 않습니다.
+- 헬퍼는 `daemon` 권한으로만 실행됩니다. `--led-no-drop-privs` 등으로 root인 채 실행되면 헬퍼를 돌리지 않습니다.
+- 로그에는 상태와 예외 이름만 남고, 인증키·요청 주소·응답 내용은 남지 않습니다. 코어 덤프도 만들지 않습니다.
+- 응답은 256KB까지만 읽고, DTD/ENTITY가 들어 있는 XML은 거부합니다.
+- `clockmode`는 임시 파일을 예측할 수 없는 이름으로 만든 뒤 원자적으로 교체합니다.
+- **인증키가 대화나 메시지 등 다른 곳에 노출되었다면 재발급하세요.** 공공데이터포털 마이페이지에서
+  재발급한 뒤 `bus.conf`의 `SERVICE_KEY`만 바꾸면 됩니다(재시작 불필요).
+
+### 선택 작업 (sudo 필요, 서로 독립)
+
+설정 폴더 `/etc/systemd/system/ledclock.service.d/`에 파일을 하나씩 추가하는 방식이라,
+되돌릴 때는 해당 파일을 지우고 `sudo systemctl daemon-reload && sudo systemctl restart ledclock` 하면 됩니다.
+
+**1. 재시작 정책 (권장)**: 프로그램이 반복해서 죽어도 포기하지 않고 5초 간격으로 다시 시작합니다.
+
+```bash
+sudo mkdir -p /etc/systemd/system/ledclock.service.d
+printf '[Unit]\nStartLimitIntervalSec=0\n[Service]\nRestartSec=5\n' \
+  | sudo tee /etc/systemd/system/ledclock.service.d/10-restart.conf
+sudo systemctl daemon-reload && sudo systemctl restart ledclock
+systemctl show ledclock -p RestartUSec -p StartLimitIntervalUSec   # 5s / 0 이면 적용됨
+```
+
+**2. systemd 보안 옵션**: 헬퍼가 공격받더라도 피해 범위를 줄입니다.
+
+```bash
+printf '[Service]\nNoNewPrivileges=yes\nProtectSystem=full\nProtectHome=read-only\nPrivateTmp=yes\nProtectControlGroups=yes\nLimitCORE=0\n' \
+  | sudo tee /etc/systemd/system/ledclock.service.d/20-hardening.conf
+sudo systemctl daemon-reload && sudo systemctl restart ledclock
+journalctl -u ledclock -b -n 40      # 오류 없이 [bus] ok 가 나오는지, 화면이 깜빡이지 않는지 확인
+```
+
+`PrivateDevices`, `ProtectClock`, `ProtectKernelTunables`, `RestrictRealtime`, `ProtectHome=yes`는
+LED 제어(`/dev/mem`, 실시간 스레드)나 작업 폴더를 막으므로 **쓰지 마세요.**
+
+**3. bus.conf 권한 강화**: 다른 사용자가 읽지 못하게 합니다.
+
+```bash
+sudo chgrp daemon bus.conf && chmod 640 bus.conf   # 되돌리기: chmod 644 bus.conf
+```
+
 ### 확인과 테스트
 
 ```bash
 # API 호출 결과 확인 (bus.conf 필요)
 python3 -I busfetch.py
 
-# 서비스 로그에서 버스 상태와 모드 변경 확인
-journalctl -u ledclock -f | grep -E '\[bus\]|\[display\]'
+# 서비스 로그에서 버스 상태, 모드 변경, 새벽 중지 확인
+journalctl -u ledclock -f | grep -E '\[bus\]|\[display\]|\[clock\]'
 
 # 개발용: LED 없이 모든 모드의 화면을 텍스트로 확인 (macOS에서도 빌드 가능)
 make preview && ./preview
 ./preview --timeline                  # 모드별 화면 전환 시점만 보기
-python3 -I busfetch.py | ./preview - 1 30   # 실제 데이터를 1안으로 30초 동안
+python3 -I busfetch.py | ./preview - 2 30   # 실제 데이터를 2안으로 30초 동안
 
-# 테스트 + 모든 프레임이 96x16 안에 들어가는지 + 타임라인 비교
+# 테스트 + 모든 프레임이 96x16 안에 들어가는지 + 타임라인 비교 + 저장소 키 검사
 make check
 ```
 
@@ -329,10 +393,14 @@ sudo reboot
 1. `python3 -I busfetch.py` 실행 결과 확인
    - `ERR AUTH 30`: 인증키 미등록. 활용신청 직후에는 등록까지 1시간 정도 걸릴 수 있음
    - `ERR LIMIT`: 일일 호출 한도 초과. 자정 이후 다시 시도
+     (정상 사용은 하루 약 800회입니다. 한도 10,000회가 찼다면 키가 다른 곳에서 쓰이는지 확인하고 재발급하세요)
    - `ERR NET`: 인터넷 연결 또는 DNS 확인
    - `OK 0`: 지금 운행 중인 버스가 없음 (정상)
 2. `journalctl -u ledclock | grep '\[bus\]'`로 상태 변화 확인
-3. `bus.conf` 권한이 `644`인지 확인 (`daemon` 사용자가 읽을 수 있어야 함)
+3. `bus.conf` 권한이 `644`(또는 `640` + 그룹 `daemon`)인지 확인 (`daemon` 사용자가 읽을 수 있어야 함).
+   로그에 `[bus] no-config (./bus.conf: Permission denied)`가 보이면 권한 문제입니다.
+4. 새벽 중지 시간(기본 01:00~05:00)에는 원래 시계가 정상입니다. `./clockmode`로 확인하세요.
+5. 부팅 직후 `[bus] polling paused (waiting for the clock to sync)`는 시각 동기화를 기다리는 중입니다.
 
 ---
 
