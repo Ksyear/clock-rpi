@@ -49,8 +49,9 @@ private:
 // Mode 2: the right-hand bus area shows, in route order, each route whose bus
 // comes within rotate_within minutes, for rotate_secs (twice as long when SOON).
 // A route joins at <= within minutes and leaves at >= within + 2, so a bus near
-// the threshold does not flicker in and out. With no such route the soonest bus
-// is shown without rotating; with no bus at all, the original clock.
+// the threshold does not flicker in and out. Buses rotate_skip minutes or less
+// away (and SOON ones) are left out as too close to catch. With no route in
+// range the soonest remaining bus is shown without rotating; with none, the clock.
 class RotateScreen {
 public:
     void Reset();

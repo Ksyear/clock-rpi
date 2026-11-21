@@ -93,11 +93,22 @@
   5.1 [rotate] SIDE 212 15MIN
  10.0 [rotate] SIDE 212 16MIN
  20.0 [rotate] SIDE 212 17MIN (next)
-== mode 2, a SOON route stays twice as long (12 s)
+== mode 2 --skip 0, a SOON route stays twice as long (12 s)
   0.0 [rotate] SIDE 102 SOON
  12.0 [rotate] SIDE 104 4MIN
  18.0 [rotate] SIDE 102 SOON
  30.0 [rotate] SIDE 104 4MIN
+== mode 2, buses 3 min or less away and SOON are skipped
+  0.0 [rotate] SIDE 113 5MIN
+  0.1 [rotate] SIDE 113 4MIN
+  6.0 [rotate] SIDE 212 9MIN
+ 12.0 [rotate] SIDE 113 4MIN
+ 18.0 [rotate] SIDE 212 9MIN
+ 24.0 [rotate] SIDE 113 4MIN
+ 30.0 [rotate] SIDE 212 9MIN
+ 36.0 [rotate] SIDE 113 4MIN
+== mode 2, only close buses left: original clock
+  0.0 [rotate] CLOCK
 == quiet hours start at 01:00:00 (mode 2, from 00:59:55)
   0.0 [rotate] SIDE 113 5MIN
   5.0 [rotate] CLOCK QUIET

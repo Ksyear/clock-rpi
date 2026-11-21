@@ -163,6 +163,7 @@ DisplaySettings Legacy(DisplayMode m) {
     DisplaySettings s = Mode(m);
     s.rotate_secs = 3;
     s.rotate_within = 99;
+    s.rotate_skip = 0;
     s.alt_bus_secs = 5;
     return s;
 }
@@ -374,8 +375,15 @@ void Timelines(const Fonts &fonts, bool text_only) {
              Data(0, {{"212", 965, 10}}), Mode(DisplayMode::kRotate), 30, {},
              {{10, "OK 1\nLABEL BUS\nBUS 212 990 10 RUN\n"},
               {20, "OK 1\nLABEL BUS\nBUS 212 1030 10 RUN\n"}});
-    Timeline(fonts, text_only, "mode 2, a SOON route stays twice as long (12 s)",
-             Data(0, {{"102", 50, 1}, {"104", 300, 3}}), Mode(DisplayMode::kRotate), 30);
+    DisplaySettings keep_close = Mode(DisplayMode::kRotate);
+    keep_close.rotate_skip = 0;
+    Timeline(fonts, text_only, "mode 2 --skip 0, a SOON route stays twice as long (12 s)",
+             Data(0, {{"102", 50, 1}, {"104", 300, 3}}), keep_close, 30);
+    Timeline(fonts, text_only, "mode 2, buses 3 min or less away and SOON are skipped",
+             Data(0, {{"102", 50, 1}, {"104", 239, 3}, {"113", 300, 4}, {"212", 600, 8}}),
+             Mode(DisplayMode::kRotate), 40);
+    Timeline(fonts, text_only, "mode 2, only close buses left: original clock",
+             Data(0, {{"102", 50, 1}, {"104", 200, 3}}), Mode(DisplayMode::kRotate), 5);
 
     // Quiet hours (default 01:00-05:00).
     Timeline(fonts, text_only, "quiet hours start at 01:00:00 (mode 2, from 00:59:55)",
