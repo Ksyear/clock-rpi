@@ -11,6 +11,8 @@
 #ifndef CLOCK_BUS_H
 #define CLOCK_BUS_H
 
+#include <time.h>
+
 #include <condition_variable>
 #include <mutex>
 #include <string>
@@ -24,6 +26,13 @@ struct BusArrival {
     int stops;             // remaining stops (-1 = unknown)
     bool waiting = false;  // still at its terminal: `secs` is a timetable estimate
     int min_secs = 0;      // waiting: never show less than this (the drive here)
+};
+
+// From 노선정보조회 (busfetch.py --routes): index 0 weekday, 1 Saturday, 2 Sunday.
+struct RouteInfo {
+    std::string route;
+    int headway[3];  // minutes, 0 = unknown
+    int last[3];     // last departure HHMM (00:30 = 30 = after midnight), 0 = unknown
 };
 
 enum class BusStatus {
@@ -44,6 +53,8 @@ struct BusSnapshot {
     std::string label = "BUS";
     std::string via;          // API that answered ("daejeon", "tago")
     std::string notes;        // NOTE lines from the helper, space separated
+    std::vector<RouteInfo> routes;  // kept across fetches; refreshed by --routes runs
+    double routes_at = -1;    // MonotonicSeconds() of the last ROUTE lines, -1 = never
 };
 
 // What the screens show: one entry per route, sorted by RouteLess().
@@ -63,9 +74,28 @@ enum class EntryStyle {
 
 struct BusEntry {
     std::string route;
-    int mins;  // 0..99
-    EntryStyle style;
+    int mins = 0;  // 0..99
+    EntryStyle style = EntryStyle::kNormal;
+    // The bus after it: a real second bus in the answer, or an estimate from the
+    // route's headway (only before its last departure). Estimates are kWait.
+    bool has_next = false;
+    int next_mins = 0;
+    EntryStyle next_style = EntryStyle::kWait;
+    bool next_estimated = false;
 };
+
+// The bus a screen should show for a route, given a minimum lead time.
+struct BusPick {
+    int mins;
+    EntryStyle style;
+    bool second;     // it is the bus after the nearest one
+    bool estimated;  // from the headway, not from a real bus
+};
+
+// The first bus that is at least `min_mins` away and not SOON/passed, else the
+// next one under the same rule. min_mins 0: the nearest live bus (SOON allowed),
+// else the next one. Returns false if there is none.
+bool CatchableBus(const BusEntry &e, int min_mins, BusPick *out);
 
 struct BusBoard {
     BoardState state = BoardState::kHidden;
@@ -79,8 +109,9 @@ double MonotonicSeconds();
 // Returns false if the output does not follow the protocol.
 bool ParseFetchOutput(const std::string &out, double now, BusSnapshot *snap);
 
-// Decides what can be shown at `now`. Pure function, shared by every screen.
-BusBoard ComputeBusBoard(const BusSnapshot &snap, double now);
+// Decides what can be shown at `now` (monotonic) / `wall` (local time, for the
+// day type and the last departure). Pure function, shared by every screen.
+BusBoard ComputeBusBoard(const BusSnapshot &snap, double now, const struct tm &wall);
 
 // Route order on screen: numbers by value first ("11" < "102"), then text.
 bool RouteLess(const std::string &a, const std::string &b);
@@ -110,8 +141,11 @@ class BusFeed {
 public:
     // start_delay: seconds before the first helper run, so a crash/restart loop
     // cannot turn into an API request loop.
+    // routes_cmd: the helper with --routes (also fetches headways). It is used
+    // for the first run, then when the route table is over 6 h old or a route is
+    // missing from it (at most every 30 min); empty = never.
     BusFeed(const std::string &helper_cmd, const std::string &conf_path,
-            double start_delay = 20);
+            double start_delay = 20, const std::string &routes_cmd = "");
     void Start();                  // starts a detached thread
     void Stop();                   // asks the thread to finish; does not wait for it
     void SetPause(FeedPause p, const std::string &why = "");  // no helper runs while paused
@@ -125,6 +159,7 @@ private:
     const std::string helper_cmd_;
     const std::string conf_path_;
     const double start_delay_;
+    const std::string routes_cmd_;
     std::mutex mu_;
     std::condition_variable cv_;
     bool stop_ = false;

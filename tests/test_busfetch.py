@@ -219,6 +219,114 @@ class SafetyTest(unittest.TestCase):
         self.assertEqual(boom.call_count, 2)
 
 
+ROUTE_FIXTURES = {"30300037": "102", "30300039": "104", "30300005": "11",
+                  "30300045": "113", "30300108": "117", "30300127": "212"}
+
+
+class RouteInfoTest(unittest.TestCase):
+    """노선정보조회 (headways for the next-bus estimate), saved 2026-11-21 17:43."""
+
+    def test_parse_route_info(self):
+        self.assertEqual(busfetch.parse_route_info(read("daejeon_route_102.xml")),
+                         ("102", (8, 8, 10), (2235, 2235, 2235)))
+        self.assertEqual(busfetch.parse_route_info(read("daejeon_route_104.xml")),
+                         ("104", (23, 23, 24), (2230, 2231, 2231)))      # TURN_END differs
+        self.assertEqual(busfetch.parse_route_info(read("daejeon_route_212.xml"))[2],
+                         (2300, 2300, 2300))                              # TURN_END > ORIGIN_END
+        self.assertEqual(busfetch.parse_route_info(read("daejeon_route_11.xml"))[1], (134, 134, 134))
+
+    def test_invalid_values_are_zero(self):
+        xml = ('<?xml version="1.0"?><ServiceResult><msgHeader><headerCd>0</headerCd></msgHeader>'
+               '<msgBody><itemList><ROUTE_NO>102</ROUTE_NO><ALLO_INTERVAL>abc</ALLO_INTERVAL>'
+               '<ALLO_INTERVAL_SAT>0</ALLO_INTERVAL_SAT><ALLO_INTERVAL_SUN>9999</ALLO_INTERVAL_SUN>'
+               '<ORIGIN_END>2575</ORIGIN_END><TURN_END_SAT>0030</TURN_END_SAT>'
+               '<ORIGIN_END_SAT>2300</ORIGIN_END_SAT></itemList></msgBody></ServiceResult>')
+        self.assertEqual(busfetch.parse_route_info(xml), ("102", (0, 0, 0), (0, 30, 0)))
+
+    def test_route_codes_from_the_arrival_answer(self):
+        extra = {}
+        busfetch.parse_daejeon(read("daejeon_1743.xml"), hms("17:43:10"), 60, set(), extra)
+        self.assertEqual(extra["route_cds"], ROUTE_FIXTURES)
+        extra = {}
+        busfetch.parse_tago(read("tago_many.json"), hms("14:05:40"), 60, set(), extra)
+        self.assertEqual(extra["route_cds"]["30300037"], "102")
+
+    def test_route_files_in_parse_mode(self):
+        out = io.StringIO()
+        busfetch.run(["busfetch.py", "--parse-file", "daejeon",
+                      os.path.join(FIXTURES, "daejeon_1743.xml"), "--now", "17:43:10",
+                      "--route-file", os.path.join(FIXTURES, "daejeon_route_102.xml"),
+                      "--route-file", os.path.join(FIXTURES, "daejeon_badkey.xml")], out)
+        text = out.getvalue()
+        self.assertTrue(text.startswith("OK 6\n"))
+        self.assertTrue(text.endswith("ROUTE 102 8 8 10 2235 2235 2235\nNOTE routes=AUTH\n"))
+
+
+class LiveRunTest(unittest.TestCase):
+    """busfetch.run() with the HTTP layer replaced by the saved responses."""
+
+    def setUp(self):
+        self.dir = tempfile.mkdtemp()
+        self.conf = os.path.join(self.dir, "bus.conf")
+        with open(self.conf, "w") as f:
+            f.write("SERVICE_KEY=abc\n")
+        self.calls = []
+        self.route_reply = lambda cd: read("daejeon_route_%s.xml" % ROUTE_FIXTURES[cd])
+
+    def tearDown(self):
+        os.remove(self.conf)
+        os.rmdir(self.dir)
+
+    def fake_get(self, url, params, timeout):
+        self.calls.append((url, params.get("busRouteId"), timeout))
+        if url == busfetch.DAEJEON_URL:
+            return read("daejeon_1743.xml")
+        if url == busfetch.ROUTE_INFO_URL:
+            return self.route_reply(params["busRouteId"])
+        raise AssertionError(url)
+
+    def run_live(self, *args):
+        out = io.StringIO()
+        with mock.patch.object(busfetch, "http_get", side_effect=self.fake_get), \
+                mock.patch.object(busfetch, "CONF_PATH", self.conf), \
+                mock.patch.object(busfetch, "now_kst_sod", return_value=hms("17:43:10")):
+            busfetch.run(["busfetch.py"] + list(args), out)
+        return out.getvalue()
+
+    def test_without_routes_one_call(self):
+        text = self.run_live()
+        self.assertEqual(len(self.calls), 1)
+        self.assertNotIn("ROUTE", text)
+
+    def test_with_routes(self):
+        text = self.run_live("--routes")
+        self.assertTrue(text.startswith("OK 6\n"))
+        self.assertEqual(len(self.calls), 7)
+        self.assertTrue(all(t <= busfetch.ROUTE_CALL_TIMEOUT for _, cd, t in self.calls if cd))
+        self.assertIn("\nROUTE 102 8 8 10 2235 2235 2235\n", text)
+        self.assertEqual(text.count("\nROUTE "), 6)
+        self.assertLess(text.index("BUS 212"), text.index("ROUTE"))   # arrivals come first
+
+    def test_route_auth_failure_keeps_the_arrivals(self):
+        self.route_reply = lambda cd: (_ for _ in ()).throw(busfetch.FetchError("AUTH", "30"))
+        text = self.run_live("--routes")
+        self.assertEqual(len(self.calls), 2)                      # stops after the first AUTH
+        self.assertTrue(text.startswith("OK 6\n"))
+        self.assertTrue(text.endswith("NOTE routes=AUTH\n"))
+
+    def test_time_budget_gives_partial_results(self):
+        clock = [0.0]
+        def slow_get(url, params, timeout):
+            clock[0] += 3.0
+            return self.fake_get(url, params, timeout)
+        with mock.patch.object(busfetch.time, "monotonic", side_effect=lambda: clock[0]), \
+                mock.patch.object(busfetch, "http_get", side_effect=slow_get):
+            notes = set()
+            routes = busfetch.fetch_routes({"SERVICE_KEY": "abc"}, ROUTE_FIXTURES, notes, 0.0)
+        self.assertEqual(len(routes), 4)                          # 0, 3, 6, 9 s; budget 12 s
+        self.assertEqual(notes, {"routes=TIMEOUT"})
+
+
 class ConfTest(unittest.TestCase):
     def write_conf(self, data):
         fd, path = tempfile.mkstemp()

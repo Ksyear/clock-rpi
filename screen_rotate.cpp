@@ -9,6 +9,9 @@
  * bus is SOON). Closer buses and SOON ones are too close to catch and are left
  * out (rotate_min 0 keeps them).
  *
+ *   - per route the nearest bus, or if it is too close the one after it (a
+ *     second bus in the answer, or nearest + headway for short-headway routes
+ *     such as 102), tag "(2nd)"
  *   - a route joins at <= within minutes and leaves at >= within + 2
  *   - one route in range: no rotation at all
  *   - none in range: the soonest bus stays up (changes only if another one is
@@ -40,14 +43,17 @@ std::string RotateScreen::Draw(rgb_matrix::Canvas *c, const ClockFonts &f, const
         return "SIDE BUS ERR";
     }
 
-    std::vector<const BusEntry *> live;  // in route order (board.entries is sorted)
+    // Per route, the bus worth showing: the nearest one if it is catchable,
+    // else the one after it (a real second bus, or an estimate from the headway).
+    struct Live {
+        const BusEntry *entry;
+        BusPick pick;
+    };
+    std::vector<Live> live;  // in route order (board.entries is sorted)
     if (board.state == BoardState::kData) {
         for (const BusEntry &e : board.entries) {
-            if (e.style == EntryStyle::kPassed) continue;
-            if (s.rotate_min > 0 && (e.style == EntryStyle::kSoon || e.mins < s.rotate_min)) {
-                continue;  // too close to catch
-            }
-            live.push_back(&e);
+            BusPick pick;
+            if (CatchableBus(e, s.rotate_min, &pick)) live.push_back(Live{ &e, pick });
         }
     }
     if (live.empty()) {
@@ -55,32 +61,46 @@ std::string RotateScreen::Draw(rgb_matrix::Canvas *c, const ClockFonts &f, const
         DrawClassicClock(c, f, t);
         return "CLOCK";
     }
+    auto find = [&live](const std::string &route) -> const Live * {
+        for (const Live &l : live) {
+            if (l.entry->route == route) return &l;
+        }
+        return NULL;
+    };
 
     // Who takes part in the rotation, with hysteresis around the threshold.
     std::vector<std::string> members;
-    for (const BusEntry *e : live) {
-        const bool was = std::find(members_.begin(), members_.end(), e->route) != members_.end();
-        if (e->mins <= s.rotate_within || (was && e->mins < s.rotate_within + 2)) {
-            members.push_back(e->route);
+    for (const Live &l : live) {
+        const bool was =
+            std::find(members_.begin(), members_.end(), l.entry->route) != members_.end();
+        if (l.pick.mins <= s.rotate_within || (was && l.pick.mins < s.rotate_within + 2)) {
+            members.push_back(l.entry->route);
         }
     }
     members_ = members;
 
-    const BusEntry *shown = NULL;
+    const Live *shown = NULL;
     std::string suffix;
     if (members_.empty()) {
-        // Nothing within the threshold: keep showing the soonest bus, without rotating.
-        const BusEntry *soonest = live[0];
-        for (const BusEntry *e : live) {
-            if (e->mins < soonest->mins) soonest = e;
+        // Nothing within the threshold: keep showing the soonest real bus, without
+        // rotating (headway estimates of long-headway routes are too rough here).
+        const Live *soonest = NULL;
+        for (const Live &l : live) {
+            if (!l.pick.estimated && (soonest == NULL || l.pick.mins < soonest->pick.mins)) {
+                soonest = &l;
+            }
         }
-        shown = FindEntry(board, current_);
-        if (shown == NULL || shown->style == EntryStyle::kPassed ||
-            soonest->mins <= shown->mins - 2) {
+        if (soonest == NULL) {
+            Reset();
+            DrawClassicClock(c, f, t);
+            return "CLOCK";
+        }
+        shown = find(current_);
+        if (shown == NULL || shown->pick.estimated || soonest->pick.mins <= shown->pick.mins - 2) {
             shown = soonest;
         }
-        if (current_ != shown->route) {
-            current_ = shown->route;
+        if (current_ != shown->entry->route) {
+            current_ = shown->entry->route;
             since_ = now;
         }
         suffix = " (next)";
@@ -103,8 +123,9 @@ std::string RotateScreen::Draw(rgb_matrix::Canvas *c, const ClockFonts &f, const
             current_ = members_[idx];
             since_ = now;
         } else if (members_.size() > 1) {
-            const BusEntry *e = FindEntry(board, current_);
-            const double dwell = s.rotate_secs * (e && e->style == EntryStyle::kSoon ? 2 : 1);
+            const Live *l = find(current_);
+            const double dwell =
+                s.rotate_secs * (l && l->pick.style == EntryStyle::kSoon ? 2 : 1);
             if (now - since_ >= dwell) {
                 idx = (idx + 1) % static_cast<int>(members_.size());
                 current_ = members_[idx];
@@ -112,15 +133,19 @@ std::string RotateScreen::Draw(rgb_matrix::Canvas *c, const ClockFonts &f, const
                 if (now - since_ >= s.rotate_secs) since_ = now;  // after a long pause
             }
         }
-        shown = FindEntry(board, current_);
+        shown = find(current_);
     }
 
-    const std::string text = MinutesText(*shown);
-    const rgb_matrix::Color &color = shown->style == EntryStyle::kStale ? colors::kStale
-                                   : shown->style == EntryStyle::kWait  ? colors::kWait
-                                                                        : colors::kMinutes;
+    BusEntry view;
+    view.route = shown->entry->route;
+    view.mins = shown->pick.mins;
+    view.style = shown->pick.style;
+    const std::string text = MinutesText(view);
+    const rgb_matrix::Color &color = view.style == EntryStyle::kStale ? colors::kStale
+                                   : view.style == EntryStyle::kWait  ? colors::kWait
+                                                                      : colors::kMinutes;
     // Blinking starts "on" every time a route comes up.
-    const bool show = shown->style != EntryStyle::kSoon || fmod(now - since_, 1.0) < 0.5;
-    DrawSideBus(c, f, t, shown->route, text, color, show);
-    return "SIDE " + shown->route + " " + text + suffix;
+    const bool show = view.style != EntryStyle::kSoon || fmod(now - since_, 1.0) < 0.5;
+    DrawSideBus(c, f, t, view.route, text, color, show);
+    return "SIDE " + view.route + " " + text + (shown->pick.second ? " (2nd)" : "") + suffix;
 }

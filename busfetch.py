@@ -18,6 +18,12 @@ directory, as the unprivileged `daemon` user, fed on stdin as
     BUS <route> <secs> <stops> WAIT <min>     waiting at its terminal: estimated
                                               <secs> until arrival, never less
                                               than <min> (the drive to this stop)
+    ROUTE <route> <hw_wk> <hw_sat> <hw_sun> <last_wk> <last_sat> <last_sun>
+                                   only with --routes, after the BUS lines (not
+                                   counted in OK n): headway in minutes and the
+                                   last departure HHMM per weekday/Saturday/Sunday
+                                   from 노선정보조회, 0 = unknown. The clock uses
+                                   it to estimate the NEXT bus of a route.
 
 Buses waiting at their terminal (대전시 MSG_TP=07) do not report seconds: their
 EXTIME_SEC is the scheduled departure time as HHMM (1519 = 15:19). They are
@@ -31,8 +37,8 @@ Only the Python standard library is used. The service key is read from
 ./bus.conf (never commit that file) and only ever sent over HTTPS.
 
 Usage:
-    python3 -I busfetch.py                                    # live (needs bus.conf)
-    python3 -I busfetch.py --parse-file daejeon FILE [--now HH:MM:SS]
+    python3 -I busfetch.py [--routes]                         # live (needs bus.conf)
+    python3 -I busfetch.py --parse-file daejeon FILE [--now HH:MM:SS] [--route-file F]...
     python3 -I busfetch.py --parse-file tago FILE [--now HH:MM:SS]
 """
 
@@ -70,6 +76,10 @@ DEFAULTS = {
 TAGO_URL = ("https://apis.data.go.kr/1613000/ArvlInfoInqireService/"
             "getSttnAcctoArvlPrearngeInfoList")
 DAEJEON_URL = "https://apis.data.go.kr/6300000/arrive/getArrInfoByStopID"
+ROUTE_INFO_URL = "https://apis.data.go.kr/6300000/busRouteInfo/getRouteInfo"
+ROUTES_BUDGET = 12.0             # seconds for all route-info calls together
+ROUTES_DEADLINE = 17.0           # ... and never later than this after start (timeout 20)
+ROUTE_CALL_TIMEOUT = 3.0
 
 MAX_BUSES = 12
 MAX_RESPONSE = 256 * 1024
@@ -220,7 +230,7 @@ def parse_xml(text):
         raise FetchError("PARSE", "xml")
 
 
-def parse_tago(text, now_sod=None, stop_secs=60, notes=None):
+def parse_tago(text, now_sod=None, stop_secs=60, notes=None, extra=None):
     err = gateway_error(text)
     if err:
         raise err
@@ -240,6 +250,10 @@ def parse_tago(text, now_sod=None, stop_secs=60, notes=None):
         buses = []
         for it in item:
             route = str(it.get("routeno", "")).strip()
+            if extra is not None:   # TAGO routeid DJB30300037 = 대전시 ROUTE_CD 30300037
+                cd = str(it.get("routeid", ""))
+                if cd.startswith("DJB") and cd[3:].isdigit() and route:
+                    extra.setdefault("route_cds", {})[cd[3:]] = route
             v = to_int(it.get("arrtime"))
             stops = to_int(it.get("arrprevstationcnt"))
             if not route or v < 0:
@@ -264,7 +278,7 @@ def parse_tago(text, now_sod=None, stop_secs=60, notes=None):
         raise FetchError("PARSE", "tago")
 
 
-def parse_daejeon(text, now_sod=None, stop_secs=60, notes=None):
+def parse_daejeon(text, now_sod=None, stop_secs=60, notes=None, extra=None):
     err = gateway_error(text)
     if err:
         raise err
@@ -278,6 +292,10 @@ def parse_daejeon(text, now_sod=None, stop_secs=60, notes=None):
     buses = []
     for it in root.iter("itemList"):
         route = (it.findtext("ROUTE_NO") or "").strip()
+        if extra is not None:
+            cd = (it.findtext("ROUTE_CD") or "").strip()
+            if cd.isdigit() and len(cd) <= 12 and route:
+                extra.setdefault("route_cds", {})[cd] = route
         msg_tp = (it.findtext("MSG_TP") or "").strip()
         secs = to_int(it.findtext("EXTIME_SEC"))
         mins = to_int(it.findtext("EXTIME_MIN"))
@@ -300,6 +318,70 @@ def parse_daejeon(text, now_sod=None, stop_secs=60, notes=None):
                 if bus:
                     buses.append(bus)
     return buses
+
+
+def parse_route_info(text):
+    """getRouteInfo -> (route, (hw_wk, hw_sat, hw_sun), (last_wk, last_sat, last_sun)).
+
+    Headways in minutes, last departures as HHMM (the later of ORIGIN_END and
+    TURN_END, so it also covers stops on the way back); 0 = unknown/invalid."""
+    err = gateway_error(text)
+    if err:
+        raise err
+    root = parse_xml(text)
+    code = (root.findtext("./msgHeader/headerCd") or "").strip()
+    if code != "0":
+        raise FetchError("API", "rt" + safe_word(code or "unknown", 8))
+    it = root.find(".//itemList")
+    if it is None:
+        raise FetchError("PARSE", "route_info")
+    route = clean_route(it.findtext("ROUTE_NO") or "")
+
+    def headway(tag):
+        v = to_int(it.findtext(tag))
+        return v if 1 <= v <= 600 else 0
+
+    def last(suffix):
+        best = 0
+        for tag in ("ORIGIN_END", "TURN_END"):
+            v = to_int(it.findtext(tag + suffix))
+            if hhmm_seconds(v) is None:
+                continue
+            # after-midnight times (00:30) are later than 23:00
+            if best == 0 or (v + 2400 if v < 400 else v) > (best + 2400 if best < 400 else best):
+                best = v
+        return best
+
+    return (route,
+            tuple(headway(t) for t in ("ALLO_INTERVAL", "ALLO_INTERVAL_SAT", "ALLO_INTERVAL_SUN")),
+            tuple(last(sfx) for sfx in ("", "_SAT", "_SUN")))
+
+
+def fetch_routes(conf, codes, notes, started):
+    """Route info for every ROUTE_CD seen, within a time budget; partial is fine."""
+    routes = []
+    deadline = min(time.monotonic() + ROUTES_BUDGET, started + ROUTES_DEADLINE)
+    for cd in sorted(codes):
+        left = deadline - time.monotonic()
+        if left < 0.5:
+            notes.add("routes=TIMEOUT")
+            break
+        try:
+            text = http_get(ROUTE_INFO_URL, {"serviceKey": service_key(conf), "busRouteId": cd},
+                            min(ROUTE_CALL_TIMEOUT, left))
+            routes.append(parse_route_info(text))
+        except FetchError as e:
+            notes.add("routes=" + e.kind)
+            if e.kind in ("AUTH", "LIMIT", "CONF"):
+                break           # the others would fail the same way
+    return routes
+
+
+def emit_routes(out, routes, notes=()):
+    for route, hw, last in routes:
+        out.write("ROUTE %s %d %d %d %d %d %d\n" % ((route,) + tuple(hw) + tuple(last)))
+    for note in sorted(notes):
+        out.write("NOTE %s\n" % safe_word(note))
 
 
 def https_opener():
@@ -350,7 +432,7 @@ def service_key(conf):
     return key
 
 
-def fetch_tago(conf, notes):
+def fetch_tago(conf, notes, extra=None):
     params = {
         "serviceKey": service_key(conf),
         "cityCode": conf["CITY_CODE"],
@@ -360,16 +442,16 @@ def fetch_tago(conf, notes):
         "_type": "json",
     }
     text = http_get(TAGO_URL, params, conf_number(conf, "TIMEOUT", 1.0, 8.0, float))
-    return parse_tago(text, None, conf_number(conf, "WAIT_STOP_SECS", 0, 300), notes)
+    return parse_tago(text, None, conf_number(conf, "WAIT_STOP_SECS", 0, 300), notes, extra)
 
 
-def fetch_daejeon(conf, notes):
+def fetch_daejeon(conf, notes, extra=None):
     params = {
         "serviceKey": service_key(conf),
         "BusStopID": conf["BUS_STOP_ID"],
     }
     text = http_get(DAEJEON_URL, params, conf_number(conf, "TIMEOUT", 1.0, 8.0, float))
-    return parse_daejeon(text, None, conf_number(conf, "WAIT_STOP_SECS", 0, 300), notes)
+    return parse_daejeon(text, None, conf_number(conf, "WAIT_STOP_SECS", 0, 300), notes, extra)
 
 
 PROVIDERS = {"tago": (fetch_tago, parse_tago), "daejeon": (fetch_daejeon, parse_daejeon)}
@@ -400,12 +482,21 @@ def emit(out, buses, error=None, via=None, notes=()):
 
 
 def run(argv, out):
-    if len(argv) in (4, 6) and argv[1] == "--parse-file":
+    started = time.monotonic()
+    if len(argv) >= 4 and argv[1] == "--parse-file":
         provider, path = argv[2], argv[3]
         if provider not in PROVIDERS:
             out.write("ERR CONF unknown_provider\nLABEL BUS\n")
             return 2
-        now_sod = parse_hms(argv[5]) if len(argv) == 6 and argv[4] == "--now" else None
+        now_sod, route_files, rest = None, [], argv[4:]
+        while rest:
+            if rest[0] == "--now" and len(rest) >= 2:
+                now_sod = parse_hms(rest[1])
+            elif rest[0] == "--route-file" and len(rest) >= 2:
+                route_files.append(rest[1])
+            else:
+                raise ValueError("unknown argument")
+            rest = rest[2:]
         notes = set()
         try:
             with open(path, encoding="utf-8") as f:
@@ -413,6 +504,15 @@ def run(argv, out):
             emit(out, select(buses), via=provider, notes=notes)
         except FetchError as e:
             emit(out, [], e)
+            return 0
+        routes, route_notes = [], set()
+        for rf in route_files:
+            try:
+                with open(rf, encoding="utf-8") as f:
+                    routes.append(parse_route_info(f.read()))
+            except FetchError as e:
+                route_notes.add("routes=" + e.kind)
+        emit_routes(out, routes, route_notes)
         return 0
 
     # The clock drops root before running this; refuse to handle the key as root.
@@ -426,18 +526,27 @@ def run(argv, out):
         emit(out, [], e)
         return 0
 
+    with_routes = "--routes" in argv[1:]
     last_error = FetchError("CONF", "no_PROVIDERS")
     for name in [p.strip().lower() for p in conf["PROVIDERS"].split(",") if p.strip()]:
         if name not in PROVIDERS:
             last_error = FetchError("CONF", "unknown_provider")
             continue
-        notes = set()
+        notes, extra = set(), {}
         try:
-            buses = PROVIDERS[name][0](conf, notes)
-            emit(out, select(buses), via=name, notes=notes)
-            return 0
+            buses = PROVIDERS[name][0](conf, notes, extra)
         except FetchError as e:
             last_error = e   # the clock logs the final result; no per-attempt lines
+            continue
+        emit(out, select(buses), via=name, notes=notes)
+        if with_routes and extra.get("route_cds"):
+            # The arrivals are out first: if the route calls run into the clock's
+            # timeout, it still gets them.
+            out.flush()
+            route_notes = set()
+            emit_routes(out, fetch_routes(conf, extra["route_cds"], route_notes, started),
+                        route_notes)
+        return 0
     emit(out, [], last_error)
     return 0
 

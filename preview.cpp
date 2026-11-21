@@ -206,15 +206,15 @@ void StillBusPage(const Fonts &fonts, const char *title, const BusSnapshot &snap
                   double page_offset, bool blink_off) {
     AlternateScreen alt;
     const DisplaySettings s = Legacy(DisplayMode::kAlternate);
-    const BusBoard board = ComputeBusBoard(snap, kT0);
     TextCanvas canvas;
     const struct tm t = ClockAt(21, 6, 0);
+    const BusBoard board = ComputeBusBoard(snap, kT0, t);
     alt.Reset(kT0, true);
     std::string tag = alt.Draw(&canvas, fonts.Get(), t, board, s, kT0);
     const double at = kT0 + page_offset + (blink_off ? 0.6 : 0);
     if (at != kT0) {
         canvas.Clear();
-        tag = alt.Draw(&canvas, fonts.Get(), t, ComputeBusBoard(snap, at), s, at);
+        tag = alt.Draw(&canvas, fonts.Get(), t, ComputeBusBoard(snap, at, t), s, at);
     }
     printf("== [alternate] %s  ->  %s\n", title, tag.c_str());
     canvas.Print();
@@ -269,6 +269,12 @@ void Stills(const Fonts &fonts) {
           Fetched("OK 1\nLABEL BUS\nBUS 102 200 2 WAIT 120\n"), Mode(DisplayMode::kFixed), 600);
     Still(fonts, "waiting bus 1 stop away does not blink",
           Fetched("OK 1\nLABEL BUS\nBUS 102 300 1 WAIT 60\n"), Mode(DisplayMode::kFixed), 0.6);
+    Still(fonts, "102 SOON: the next 102 in 9 min instead (lavender, estimate)",
+          Fetched("OK 1\nLABEL BUS\nBUS 102 65 1 RUN\nROUTE 102 8 8 10 2235 2235 2235\n"),
+          Mode(DisplayMode::kRotate));
+    Still(fonts, "Sunday: 10 min headway",
+          Fetched("OK 1\nLABEL BUS\nBUS 102 150 2 WAIT 120\nROUTE 102 8 8 10 2235 2235 2235\n"),
+          Mode(DisplayMode::kRotate), 0, 22, 0);
     Still(fonts, "nothing within 15 min: soonest bus, no rotation",
           Data(0, {{"212", 1200, 10}, {"117", 1500, 12}}), Mode(DisplayMode::kRotate));
 
@@ -385,6 +391,33 @@ void Timelines(const Fonts &fonts, bool text_only) {
     Timeline(fonts, text_only, "mode 2, only close buses left: original clock",
              Data(0, {{"102", 50, 1}, {"104", 170, 3}}), Mode(DisplayMode::kRotate), 5);
 
+    // Next bus of short-headway routes (102: every 8 min on Saturdays).
+    const std::string r102 = "ROUTE 102 8 8 10 2235 2235 2235\n";
+    const std::string r104 = "ROUTE 104 23 23 24 2230 2231 2231\n";
+    Timeline(fonts, text_only, "next bus: 102 SOON -> the one after it (+8 min)",
+             Fetched("OK 2\nLABEL BUS\nBUS 102 65 1 RUN\nBUS 212 600 8 RUN\n" + r102),
+             Mode(DisplayMode::kRotate), 25);
+    Timeline(fonts, text_only, "next bus: 102 leaving the terminal now (2MIN) -> next",
+             Fetched("OK 1\nLABEL BUS\nBUS 102 150 2 WAIT 120\n" + r102),
+             Mode(DisplayMode::kRotate), 40);
+    Timeline(fonts, text_only, "next bus: none after the last departure (from 22:36)",
+             Fetched("OK 1\nLABEL BUS\nBUS 102 65 1 RUN\n" + r102), Mode(DisplayMode::kRotate),
+             5, {}, {}, 22 * 3600 + 36 * 60);
+    Timeline(fonts, text_only, "next bus: still before the last departure (from 22:27)",
+             Fetched("OK 1\nLABEL BUS\nBUS 102 65 1 RUN\n" + r102), Mode(DisplayMode::kRotate),
+             5, {}, {}, 22 * 3600 + 27 * 60);
+    Timeline(fonts, text_only, "next bus: long headway (104, 23 min) is not used",
+             Fetched("OK 1\nLABEL BUS\nBUS 104 60 1 RUN\n" + r104), Mode(DisplayMode::kRotate), 5);
+    Timeline(fonts, text_only, "next bus: 102 passes, then new data arrives at 90 s",
+             Fetched("OK 1\nLABEL BUS\nBUS 102 20 1 RUN\n" + r102), Mode(DisplayMode::kRotate),
+             100, {}, {{90, "OK 1\nLABEL BUS\nBUS 102 520 2 WAIT 120\n"}});
+    Timeline(fonts, text_only, "next bus: mode 3 shows it instead of --",
+             Fetched("OK 1\nLABEL BUS\nBUS 102 20 1 RUN\n" + r102), Mode(DisplayMode::kFixed),
+             100, {}, {{90, "OK 1\nLABEL BUS\nBUS 102 520 2 WAIT 120\n"}});
+    Timeline(fonts, text_only, "next bus: a real second bus in the answer (no headway)",
+             Fetched("OK 2\nLABEL BUS\nBUS 102 60 1 RUN\nBUS 102 700 2 WAIT 120\n"),
+             Mode(DisplayMode::kRotate), 5);
+
     // Quiet hours (default 01:00-05:00).
     Timeline(fonts, text_only, "quiet hours start at 01:00:00 (mode 2, from 00:59:55)",
              Data(0, kStop), Mode(DisplayMode::kRotate), 8, {}, {}, 59 * 60 + 55);
@@ -416,10 +449,13 @@ void Timelines(const Fonts &fonts, bool text_only) {
     }
 }
 
-// Real BusFeed thread + a fake helper: paused means no helper run at all.
+// Real BusFeed thread + a fake helper: paused means no helper run at all, and
+// the first run is the --routes variant whose route table is kept.
 int FeedTest() {
     BusFeed *feed = new BusFeed("printf 'OK 1\\nLABEL BUS\\nBUS 102 300 3 RUN\\n'", "./Makefile",
-                                /*start_delay=*/0);
+                                /*start_delay=*/0,
+                                "printf 'OK 1\\nLABEL BUS\\nBUS 102 300 3 RUN\\n"
+                                "ROUTE 102 8 8 10 2235 2235 2235\\n'");
     auto settle = [] { struct timespec ts = { 0, 400000000L }; nanosleep(&ts, NULL); };
     int bad = 0;
     feed->SetPause(FeedPause::kQuietHours, "01:00-05:00");
@@ -434,12 +470,14 @@ int FeedTest() {
     const int again_runs = feed->Runs();
     const BusSnapshot snap = feed->Snapshot();
     feed->Stop();
-    printf("feed-test: paused %d run(s), after resume %d, paused again %d, %zu bus(es)\n",
-           paused_runs, resumed_runs, again_runs, snap.buses.size());
+    printf("feed-test: paused %d run(s), after resume %d, paused again %d, %zu bus(es), "
+           "%zu route(s)\n", paused_runs, resumed_runs, again_runs, snap.buses.size(),
+           snap.routes.size());
     if (paused_runs != 0) bad++;
     if (resumed_runs != 1) bad++;
     if (again_runs != 1) bad++;
     if (snap.status != BusStatus::kOk || snap.buses.size() != 1) bad++;
+    if (snap.routes.size() != 1 || snap.routes[0].headway[1] != 8) bad++;  // --routes ran first
     printf("feed-test: %s\n", bad == 0 ? "ok" : "FAILED");
     return bad == 0 ? 0 : 1;
 }

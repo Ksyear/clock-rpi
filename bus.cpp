@@ -44,6 +44,16 @@ const size_t kMaxRouteLen = 4;
 const int kMaxSecs = 86400;
 const int kMaxStops = 500;
 
+// Next-bus estimate from the headway.
+const int kMinHeadway = 3;          // minutes; outside 3..180 the value is ignored
+const int kMaxHeadway = 180;
+const int kLastGrace = 300;         // seconds after the last departure still allowed
+const int kServiceDayStart = 4 * 3600;  // 00:00-03:59 belongs to the previous day
+
+// Route table refresh (busfetch.py --routes).
+const double kRoutesMaxAge = 6 * 3600;
+const double kRoutesRetry = 1800;
+
 const char *StatusName(BusStatus s) {
     switch (s) {
     case BusStatus::kNoConfig:    return "no-config";
@@ -96,6 +106,57 @@ std::string RunCommand(const std::string &cmd) {
     return out;
 }
 
+// 0 weekday, 1 Saturday, 2 Sunday (public holidays are not known: weekday).
+int DayIndex(int wday) { return wday == 0 ? 2 : (wday == 6 ? 1 : 0); }
+
+// Seconds of the service day for an HHMM (after-midnight times count as 24:xx).
+int ServiceSecs(int hhmm) {
+    const int secs = (hhmm / 100) * 3600 + (hhmm % 100) * 60;
+    return hhmm < 400 ? secs + 86400 : secs;
+}
+
+const RouteInfo *FindRoute(const std::vector<RouteInfo> &routes, const std::string &route) {
+    for (const RouteInfo &r : routes) {
+        if (r.route == route) return &r;
+    }
+    return NULL;
+}
+
+// Seconds left and style of one bus; false if it has passed (`left` is still set).
+bool Evaluate(const BusArrival &b, double age, double *left, EntryStyle *style) {
+    if (b.waiting) {
+        // Timetable estimate: counts down to its departure, then stays at the
+        // drive time until the bus really leaves (no SOON, never "passed").
+        *left = std::max<double>(b.secs - age, b.min_secs);
+        *style = EntryStyle::kWait;
+        return true;
+    }
+    *left = b.secs - age;
+    if (*left < -kPassedGrace) return false;
+    if ((b.stops >= 0 && b.stops <= kSoonStops) || *left < kSoonSecs) {
+        *style = EntryStyle::kSoon;
+    } else {
+        *style = age > kStaleAge ? EntryStyle::kStale : EntryStyle::kNormal;
+    }
+    return true;
+}
+
+int Mins(double left) { return std::max(0, std::min(99, static_cast<int>(left / 60))); }
+
+std::string RoutesText(const std::vector<RouteInfo> &routes) {
+    std::vector<RouteInfo> sorted = routes;
+    std::sort(sorted.begin(), sorted.end(),
+              [](const RouteInfo &a, const RouteInfo &b) { return RouteLess(a.route, b.route); });
+    std::string out;
+    for (const RouteInfo &r : sorted) {
+        char buf[64];
+        snprintf(buf, sizeof(buf), "%s%s=%d/%d/%d", out.empty() ? "" : " ", r.route.c_str(),
+                 r.headway[0], r.headway[1], r.headway[2]);
+        out += buf;
+    }
+    return out;
+}
+
 }  // namespace
 
 double MonotonicSeconds() {
@@ -120,6 +181,23 @@ std::string MinutesText(const BusEntry &e) {
     case EntryStyle::kPassed: return "--";
     default:                  return std::to_string(e.mins) + "MIN";
     }
+}
+
+bool CatchableBus(const BusEntry &e, int min_mins, BusPick *out) {
+    auto ok = [min_mins](int mins, EntryStyle style) {
+        if (style == EntryStyle::kPassed) return false;
+        if (min_mins <= 0) return true;
+        return style != EntryStyle::kSoon && mins >= min_mins;
+    };
+    if (ok(e.mins, e.style)) {
+        *out = BusPick{ e.mins, e.style, false, false };
+        return true;
+    }
+    if (e.has_next && ok(e.next_mins, e.next_style)) {
+        *out = BusPick{ e.next_mins, e.next_style, true, e.next_estimated };
+        return true;
+    }
+    return false;
 }
 
 const BusEntry *FindEntry(const BusBoard &board, const std::string &route) {
@@ -153,6 +231,7 @@ bool ParseFetchOutput(const std::string &out, double now, BusSnapshot *snap) {
     }
 
     std::vector<BusArrival> buses;
+    std::vector<RouteInfo> routes;
     std::string label = snap->label, via, notes;
     long bus_lines = 0;
     while (std::getline(lines, line)) {
@@ -168,6 +247,20 @@ bool ParseFetchOutput(const std::string &out, double now, BusSnapshot *snap) {
             in >> note;
             if (!notes.empty()) notes += ' ';
             notes += CleanWord(note, 40);
+        } else if (word == "ROUTE") {
+            RouteInfo r;
+            std::string route;
+            if (!(in >> route >> r.headway[0] >> r.headway[1] >> r.headway[2] >>
+                  r.last[0] >> r.last[1] >> r.last[2])) {
+                continue;
+            }
+            r.route = CleanWord(route);
+            bool valid = !r.route.empty();
+            for (int i = 0; i < 3; i++) {
+                if (r.headway[i] < 0 || r.headway[i] > 600) r.headway[i] = 0;
+                if (r.last[i] < 0 || r.last[i] > 2359 || r.last[i] % 100 > 59) r.last[i] = 0;
+            }
+            if (valid) routes.push_back(r);
         } else if (word == "BUS") {
             ++bus_lines;
             BusArrival b;
@@ -198,6 +291,17 @@ bool ParseFetchOutput(const std::string &out, double now, BusSnapshot *snap) {
         snap->fetched_at = now;
         snap->via = CleanWord(via, 12);
         snap->notes = notes;
+        for (const RouteInfo &r : routes) {  // merge: keep routes this answer did not cover
+            bool replaced = false;
+            for (RouteInfo &old : snap->routes) {
+                if (old.route == r.route) {
+                    old = r;
+                    replaced = true;
+                }
+            }
+            if (!replaced && snap->routes.size() < 32) snap->routes.push_back(r);
+        }
+        if (!routes.empty()) snap->routes_at = now;
     } else if (status == BusStatus::kNoConfig) {
         snap->has_data = false;
         snap->buses.clear();
@@ -206,7 +310,7 @@ bool ParseFetchOutput(const std::string &out, double now, BusSnapshot *snap) {
     return true;
 }
 
-BusBoard ComputeBusBoard(const BusSnapshot &snap, double now) {
+BusBoard ComputeBusBoard(const BusSnapshot &snap, double now, const struct tm &wall) {
     BusBoard board;
     const bool hard_error = snap.status == BusStatus::kAuthError ||
                             snap.status == BusStatus::kLimitError;
@@ -221,39 +325,61 @@ BusBoard ComputeBusBoard(const BusSnapshot &snap, double now) {
     }
     if (snap.buses.empty()) return board;  // no bus in service: classic clock
 
-    // snap.buses is sorted by secs, so the first live bus of a route is its next one.
-    std::map<std::string, BusEntry> by_route;
-    for (const BusArrival &b : snap.buses) {
-        auto it = by_route.find(b.route);
-        const bool have_live = it != by_route.end() && it->second.style != EntryStyle::kPassed;
-        if (have_live) continue;
+    // The service day: 00:00-03:59 still belongs to the previous day's timetable.
+    int sod = wall.tm_hour * 3600 + wall.tm_min * 60 + wall.tm_sec;
+    int wday = wall.tm_wday;
+    if (sod < kServiceDayStart) {
+        sod += 86400;
+        wday = (wday + 6) % 7;
+    }
+    const int day = DayIndex(wday);
 
+    // snap.buses is sorted by secs, so per route they come soonest first.
+    std::map<std::string, std::vector<const BusArrival *>> by_route;
+    for (const BusArrival &b : snap.buses) by_route[b.route].push_back(&b);
+
+    for (const auto &kv : by_route) {
         BusEntry e;
-        e.route = b.route;
-        if (b.waiting) {
-            // Timetable estimate: counts down to its departure, then stays at the
-            // drive time until the bus really leaves (no SOON, never "passed").
-            const double left = std::max<double>(b.secs - age, b.min_secs);
-            e.mins = std::max(0, std::min(99, static_cast<int>(left / 60)));
-            e.style = EntryStyle::kWait;
-            by_route[b.route] = e;
-            continue;
+        e.route = kv.first;
+        bool have_first = false;
+        double first_left = 0, last_left = 0;
+        for (const BusArrival *b : kv.second) {
+            double left;
+            EntryStyle style;
+            const bool live = Evaluate(*b, age, &left, &style);
+            last_left = left;
+            if (!live) continue;
+            if (!have_first) {
+                have_first = true;
+                first_left = left;
+                e.mins = Mins(left);
+                e.style = style;
+            } else if (!e.has_next) {  // a real second bus in the answer
+                e.has_next = true;
+                e.next_mins = Mins(left);
+                e.next_style = style;
+            }
         }
-        const double left = b.secs - age;
-        if (left < -kPassedGrace) {
-            if (it == by_route.end()) by_route[b.route] = BusEntry{ b.route, 0, EntryStyle::kPassed };
-            continue;
+        if (!have_first) e.style = EntryStyle::kPassed;
+
+        // Otherwise estimate the next bus from the headway, but not after the
+        // route's last departure of the day.
+        const RouteInfo *ri = FindRoute(snap.routes, e.route);
+        const int headway = ri ? ri->headway[day] : 0;
+        if (!e.has_next && headway >= kMinHeadway && headway <= kMaxHeadway) {
+            const double next_left = (have_first ? first_left : last_left) + headway * 60.0;
+            const int last = ri->last[day];
+            const bool in_service = last <= 0 || sod + next_left <= ServiceSecs(last) + kLastGrace;
+            if (next_left >= 60 && in_service) {
+                e.has_next = true;
+                e.next_mins = Mins(next_left);
+                e.next_style = EntryStyle::kWait;
+                e.next_estimated = true;
+            }
         }
-        e.mins = std::max(0, std::min(99, static_cast<int>(left / 60)));
-        if ((b.stops >= 0 && b.stops <= kSoonStops) || left < kSoonSecs) {
-            e.style = EntryStyle::kSoon;
-        } else {
-            e.style = age > kStaleAge ? EntryStyle::kStale : EntryStyle::kNormal;
-        }
-        by_route[b.route] = e;
+        board.entries.push_back(e);
     }
 
-    for (const auto &kv : by_route) board.entries.push_back(kv.second);
     std::sort(board.entries.begin(), board.entries.end(),
               [](const BusEntry &a, const BusEntry &b) { return RouteLess(a.route, b.route); });
     if (board.entries.size() > kMaxEntries) board.entries.resize(kMaxEntries);
@@ -282,8 +408,9 @@ FeedPause FeedPauseFor(const DisplaySettings &s, int secs_of_day, bool clock_ok)
 }
 
 BusFeed::BusFeed(const std::string &helper_cmd, const std::string &conf_path,
-                 double start_delay)
-    : helper_cmd_(helper_cmd), conf_path_(conf_path), start_delay_(start_delay) {}
+                 double start_delay, const std::string &routes_cmd)
+    : helper_cmd_(helper_cmd), conf_path_(conf_path), start_delay_(start_delay),
+      routes_cmd_(routes_cmd) {}
 
 void BusFeed::Start() {
     {
@@ -349,6 +476,8 @@ void BusFeed::Run() {
     int day = -1;
     bool cap_logged = false;
     std::string logged;
+    std::string logged_routes;
+    double routes_try = -1;  // MonotonicSeconds() of the last --routes run
 
     while (WaitTurn()) {
         BusSnapshot snap = Snapshot();  // only this thread writes snap_
@@ -385,7 +514,18 @@ void BusFeed::Run() {
                 ++calls_today_;
                 ++runs_;
             }
-            const std::string out = RunCommand(helper_cmd_);
+            // Headways (for the next-bus estimate) are fetched rarely: first run,
+            // then when the table is 6 h old or lacks a route (every 30 min at most).
+            const double t0 = MonotonicSeconds();
+            bool missing = false;
+            for (const BusArrival &b : snap.buses) {
+                if (FindRoute(snap.routes, b.route) == NULL) missing = true;
+            }
+            const bool stale = snap.routes.empty() || t0 - snap.routes_at > kRoutesMaxAge;
+            const bool use_routes = !routes_cmd_.empty() &&
+                (routes_try < 0 || ((stale || missing) && t0 - routes_try >= kRoutesRetry));
+            if (use_routes) routes_try = t0;
+            const std::string out = RunCommand(use_routes ? routes_cmd_ : helper_cmd_);
             if (!ParseFetchOutput(out, MonotonicSeconds(), &snap)) {
                 snap.status = BusStatus::kOtherError;
             }
@@ -430,6 +570,11 @@ void BusFeed::Run() {
         if (logged != line) {
             fprintf(stderr, "%s, %d call(s) today, next in %.0fs\n", line, calls, next);
             logged = line;
+        }
+        const std::string routes_text = RoutesText(snap.routes);
+        if (routes_text != logged_routes) {
+            fprintf(stderr, "[bus] routes (headway weekday/sat/sun): %s\n", routes_text.c_str());
+            logged_routes = routes_text;
         }
     }
 }

@@ -17,6 +17,7 @@
  * - Added bus arrival display (bus.cpp, busfetch.py) with four display modes
  *   selected by the `clockmode` command (settings.cpp, screen*.cpp).
  * - No API requests during quiet hours or before the clock is synchronized.
+ * - Next bus of short-headway routes from the route headway (노선정보조회).
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -134,8 +135,10 @@ int main(int argc, char *argv[]) {
     // python3 opens a script given by name through its absolute path.
     // (The feed is intentionally never deleted; its thread may outlive main().)
     // The first request waits 20 s, so a crash/restart loop can't become a request loop.
+    // Every few hours the --routes variant also fetches the headways (next-bus estimate).
     BusFeed *bus = new BusFeed("exec timeout -k 5 20 python3 -I - < ./busfetch.py", "./bus.conf",
-                               /*start_delay=*/20);
+                               /*start_delay=*/20,
+                               "exec timeout -k 5 20 python3 -I - --routes < ./busfetch.py");
     ClockSyncWatch sync(MonotonicSeconds());
     FeedPause pause = FeedPause::kNone;
     ClockScreen screen;

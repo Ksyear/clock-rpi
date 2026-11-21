@@ -6,7 +6,9 @@
  *   MM-DD |          | 102     <- route (sky blue), `clockmode 3 --route 102`
  *    DAY  |  HH:MM   | 3MIN    <- minutes (orange), SOON blinks, "--" passed
  *
- * Without data for that route the original HH:MM:SS clock is shown.
+ * Without data for that route the original HH:MM:SS clock is shown. Right after
+ * the bus has passed, the next one (real or estimated from the headway, lavender)
+ * is shown instead of "--".
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -25,6 +27,21 @@ std::string DrawFixedScreen(rgb_matrix::Canvas *c, const ClockFonts &f, const st
     if (e == NULL) {
         DrawClassicClock(c, f, t);
         return "CLOCK";
+    }
+
+    if (e->style == EntryStyle::kPassed && e->has_next) {
+        BusEntry next;
+        next.route = e->route;
+        next.mins = e->next_mins;
+        next.style = e->next_style;
+        const std::string text = MinutesText(next);
+        const rgb_matrix::Color &color = next.style == EntryStyle::kWait  ? colors::kWait
+                                       : next.style == EntryStyle::kStale ? colors::kStale
+                                                                          : colors::kMinutes;
+        const bool show = next.style != EntryStyle::kSoon ||
+                          (static_cast<long long>(now * 2) % 2) == 0;
+        DrawSideBus(c, f, t, e->route, text, color, show);
+        return "SIDE " + e->route + " " + text + " (2nd)";
     }
 
     const std::string text = MinutesText(*e);

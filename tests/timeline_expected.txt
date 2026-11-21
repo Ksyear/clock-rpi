@@ -103,6 +103,31 @@
  20.1 [rotate] SIDE 212 9MIN
 == mode 2, only close buses left: original clock
   0.0 [rotate] CLOCK
+== next bus: 102 SOON -> the one after it (+8 min)
+  0.0 [rotate] SIDE 102 9MIN (2nd)
+  5.1 [rotate] SIDE 102 8MIN (2nd)
+ 10.0 [rotate] SIDE 212 9MIN
+ 20.0 [rotate] SIDE 102 8MIN (2nd)
+== next bus: 102 leaving the terminal now (2MIN) -> next
+  0.0 [rotate] SIDE 102 10MIN (2nd)
+== next bus: none after the last departure (from 22:36)
+  0.0 [rotate] CLOCK
+== next bus: still before the last departure (from 22:27)
+  0.0 [rotate] SIDE 102 9MIN (2nd)
+== next bus: long headway (104, 23 min) is not used
+  0.0 [rotate] CLOCK
+== next bus: 102 passes, then new data arrives at 90 s
+  0.0 [rotate] SIDE 102 8MIN (2nd)
+ 20.1 [rotate] SIDE 102 7MIN (2nd)
+ 80.1 [rotate] SIDE 102 6MIN (2nd)
+ 90.0 [rotate] SIDE 102 8MIN
+== next bus: mode 3 shows it instead of --
+  0.0 [fixed] SIDE 102 SOON
+ 50.1 [fixed] SIDE 102 7MIN (2nd)
+ 80.1 [fixed] SIDE 102 6MIN (2nd)
+ 90.0 [fixed] SIDE 102 8MIN
+== next bus: a real second bus in the answer (no headway)
+  0.0 [rotate] SIDE 102 11MIN (2nd)
 == quiet hours start at 01:00:00 (mode 2, from 00:59:55)
   0.0 [rotate] SIDE 113 5MIN
   5.0 [rotate] CLOCK QUIET

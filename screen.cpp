@@ -12,7 +12,7 @@
 
 std::string ClockScreen::Draw(rgb_matrix::Canvas *c, const ClockFonts &f, const struct tm &t,
                               const BusSnapshot &snap, const DisplaySettings &s, double now) {
-    const BusBoard board = ComputeBusBoard(snap, now);
+    const BusBoard board = ComputeBusBoard(snap, now, t);
 
     if (first_ || s.mode != last_) {
         // At boot mode 1 starts with the clock; after `clockmode 1` it starts with
