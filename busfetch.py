@@ -9,27 +9,40 @@ directory, as the unprivileged `daemon` user, fed on stdin as
 `python3 -I - < ./busfetch.py` because daemon cannot open the absolute path
 /home/clock/...) and reads a tiny line-based protocol from stdout:
 
-    OK <n>                       n = number of BUS lines that follow (0 = no bus)
-    ERR <KIND> <detail>          KIND = CONF | AUTH | LIMIT | NET | PARSE | API
-    LABEL BUS                    kept for compatibility
-    BUS <route> <secs> <stops>   one line per bus (every route at the stop),
-                                 sorted by secs, at most 12
+    OK <n>                         n = number of BUS lines that follow (0 = no bus)
+    ERR <KIND> <detail>            KIND = CONF | AUTH | LIMIT | NET | PARSE | API
+    LABEL BUS                      kept for compatibility
+    VIA <provider>                 which API answered (daejeon | tago)
+    NOTE <text>                    something worth a journal line (unknown MSG_TP)
+    BUS <route> <secs> <stops> RUN            running: <secs> until arrival
+    BUS <route> <secs> <stops> WAIT <min>     waiting at its terminal: estimated
+                                              <secs> until arrival, never less
+                                              than <min> (the drive to this stop)
+
+Buses waiting at their terminal (대전시 MSG_TP=07) do not report seconds: their
+EXTIME_SEC is the scheduled departure time as HHMM (1519 = 15:19). They are
+converted to "seconds until departure + STATUS_POS x WAIT_STOP_SECS". TAGO
+mirrors the same numbers without MSG_TP, so it is told apart heuristically.
 
 Route names are reduced to ASCII (the LED fonts have no Hangul): 급행1 -> E1,
-마을1 -> M1, at most 4 characters. Which routes are shown is decided by the
-clock's display mode (`./clockmode`), not here.
+마을1 -> M1, at most 4 characters. At most 12 buses, soonest first.
 
-Only the Python standard library is used, so nothing has to be installed on the Pi.
-The service key is read from ./bus.conf (never commit that file).
+Only the Python standard library is used. The service key is read from
+./bus.conf (never commit that file) and only ever sent over HTTPS.
 
 Usage:
-    python3 -I busfetch.py                           # live request (needs bus.conf)
-    python3 -I busfetch.py --parse-file tago FILE    # parse a saved response
-    python3 -I busfetch.py --parse-file daejeon FILE
+    python3 -I busfetch.py                                    # live (needs bus.conf)
+    python3 -I busfetch.py --parse-file daejeon FILE [--now HH:MM:SS]
+    python3 -I busfetch.py --parse-file tago FILE [--now HH:MM:SS]
 """
 
 import json
+import math
+import os
+import re
+import ssl
 import sys
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -40,14 +53,18 @@ CONF_PATH = "bus.conf"
 DEFAULTS = {
     "SERVICE_KEY": "",
     # Providers are tried in order; the next one is used only if the previous one fails.
-    # 대전시 BIS is the source system. TAGO mirrors it with a delay and was seen
-    # missing buses that were about to arrive, so it is only the fallback.
+    # 대전시 BIS is the source system. TAGO mirrors it with a delay, was seen missing
+    # buses that were about to arrive and has no MSG_TP, so it is only the fallback.
     "PROVIDERS": "daejeon,tago",
     # 한밭대학교 정류장, 대전역동광장 방향 (102번 기준)
     "CITY_CODE": "25",           # TAGO 도시코드: 대전광역시/계룡시
     "NODE_ID": "DJB8002920",     # TAGO 정류소 ID
     "BUS_STOP_ID": "8002920",    # 대전시 BIS 정류소 ID (같은 정류장)
-    "TIMEOUT": "8",
+    "TIMEOUT": "8",              # seconds per request, 1..8
+    # Estimated drive per stop for a bus still at its terminal. 102 needed
+    # 52-82 s per stop from 수통골; the low end is used because a bus that comes
+    # earlier than shown is the one you miss. 0..300.
+    "WAIT_STOP_SECS": "60",
 }
 
 TAGO_URL = ("https://apis.data.go.kr/1613000/ArvlInfoInqireService/"
@@ -55,6 +72,11 @@ TAGO_URL = ("https://apis.data.go.kr/1613000/ArvlInfoInqireService/"
 DAEJEON_URL = "https://apis.data.go.kr/6300000/arrive/getArrInfoByStopID"
 
 MAX_BUSES = 12
+MAX_RESPONSE = 256 * 1024
+MAX_CONF = 64 * 1024
+MAX_ARRIVAL = 99 * 60 + 59       # the screens show at most 99 minutes
+DEPARTED_GRACE = 10 * 60         # "departure time passed" still counts as about to leave
+KST_OFFSET = 9 * 3600            # timetables are KST, whatever the Pi's time zone is
 ROUTE_PREFIXES = (("급행", "E"), ("마을", "M"))
 
 # data.go.kr gateway error codes (OpenAPI_ServiceResponse / returnReasonCode).
@@ -69,21 +91,39 @@ class FetchError(Exception):
         self.detail = detail
 
 
+def safe_word(s, limit=40):
+    """Protocol-safe token: no spaces/newlines/odd characters, bounded length."""
+    s = re.sub(r"[^A-Za-z0-9_.=-]", "_", str(s))[:limit]
+    return s or "-"
+
+
 def load_conf(path):
     conf = dict(DEFAULTS)
     try:
-        with open(path, encoding="utf-8") as f:
-            for raw in f:
-                line = raw.strip()
-                if not line or line.startswith("#") or "=" not in line:
-                    continue
-                key, value = line.split("=", 1)
-                conf[key.strip().upper()] = value.strip().strip('"').strip("'")
+        with open(path, "rb") as f:
+            data = f.read(MAX_CONF)
     except OSError as e:
         raise FetchError("CONF", "unreadable_" + type(e).__name__)
+    for raw in data.decode("utf-8", "replace").split("\n"):
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        conf[key.strip().upper()] = value.strip().strip('"').strip("'")
     if not conf["SERVICE_KEY"]:
         raise FetchError("CONF", "no_SERVICE_KEY")
     return conf
+
+
+def conf_number(conf, key, lo, hi, cast=int):
+    """Number from bus.conf, clamped to [lo, hi]; the default if not a number."""
+    try:
+        v = cast(conf.get(key, DEFAULTS[key]))
+        if isinstance(v, float) and not math.isfinite(v):
+            raise ValueError
+    except (TypeError, ValueError):
+        v = cast(DEFAULTS[key])
+    return max(lo, min(hi, v))
 
 
 def clean_route(name):
@@ -102,6 +142,49 @@ def to_int(value, default=-1):
         return default
 
 
+def now_kst_sod():
+    """Seconds since midnight in Korea, independent of the Pi's TZ setting."""
+    return int(time.time() + KST_OFFSET) % 86400
+
+
+def parse_hms(text):
+    m = re.fullmatch(r"(\d{1,2}):(\d{2})(?::(\d{2}))?", text)
+    if not m or int(m.group(1)) > 23 or int(m.group(2)) > 59 or int(m.group(3) or 0) > 59:
+        raise ValueError("bad time: %r" % text)
+    return int(m.group(1)) * 3600 + int(m.group(2)) * 60 + int(m.group(3) or 0)
+
+
+def hhmm_seconds(value):
+    """Seconds of day for an HHMM number (1519 -> 15:19), or None if invalid."""
+    if value < 0:
+        return None
+    hh, mm = divmod(value, 100)
+    if hh > 23 or mm > 59:
+        return None
+    return hh * 3600 + mm * 60
+
+
+def until(dep_sod, now_sod):
+    """Signed seconds from now to a time of day, within -12 h .. +12 h (midnight safe)."""
+    d = (dep_sod - now_sod) % 86400
+    return d - 86400 if d > 43200 else d
+
+
+def waiting_bus(route, hhmm, stops, now_sod, stop_secs):
+    """A bus at its terminal leaving at HHMM -> (route, secs, stops, 'WAIT', min) or None."""
+    dep = hhmm_seconds(hhmm)
+    if dep is None:
+        return None
+    d = until(dep, now_sod)
+    if d < -DEPARTED_GRACE:
+        return None                     # stale entry: it should have left long ago
+    drive = max(0, stops) * stop_secs
+    total = max(0, d) + drive
+    if total > MAX_ARRIVAL:
+        return None                     # far in the future (e.g. tomorrow's first bus)
+    return (route, total, stops, "WAIT", drive)
+
+
 def gateway_error(text):
     """Return a FetchError if `text` is a data.go.kr gateway error (JSON or XML)."""
     code, msg = "", ""
@@ -112,12 +195,12 @@ def gateway_error(text):
             code = str(header.get("returnReasonCode", ""))
             msg = str(header.get("errMsg", ""))
         elif stripped.startswith("<") and "OpenAPI_ServiceResponse" in stripped:
-            root = ET.fromstring(stripped)
+            root = parse_xml(stripped)
             code = (root.findtext(".//returnReasonCode") or "").strip()
             msg = (root.findtext(".//errMsg") or "").strip()
         else:
             return None
-    except (ValueError, KeyError, TypeError, ET.ParseError):
+    except (ValueError, KeyError, TypeError, AttributeError, FetchError, ET.ParseError):
         return None
     if code in AUTH_CODES or "SERVICE_KEY" in msg:
         return FetchError("AUTH", code or "key")
@@ -126,15 +209,27 @@ def gateway_error(text):
     return FetchError("API", "gw" + (code or "unknown"))
 
 
-def parse_tago(text):
+def parse_xml(text):
+    # The API never sends a DTD; refusing one rules out entity-expansion tricks.
+    upper = text[:4096].upper()
+    if "<!DOCTYPE" in upper or "<!ENTITY" in upper:
+        raise FetchError("PARSE", "doctype")
+    try:
+        return ET.fromstring(text.lstrip())
+    except ET.ParseError:
+        raise FetchError("PARSE", "xml")
+
+
+def parse_tago(text, now_sod=None, stop_secs=60, notes=None):
     err = gateway_error(text)
     if err:
         raise err
+    now_sod = now_kst_sod() if now_sod is None else now_sod
     try:
         resp = json.loads(text)["response"]
         code = str(resp["header"]["resultCode"])
         if code != "00":
-            raise FetchError("API", "tago" + code)
+            raise FetchError("API", "tago" + safe_word(code, 8))
         items = resp["body"].get("items")
         # TAGO quirk: 0 results -> items == "", 1 result -> item is an object.
         if not items:
@@ -145,10 +240,23 @@ def parse_tago(text):
         buses = []
         for it in item:
             route = str(it.get("routeno", "")).strip()
-            secs = to_int(it.get("arrtime"))
+            v = to_int(it.get("arrtime"))
             stops = to_int(it.get("arrprevstationcnt"))
-            if route and secs >= 0:
-                buses.append((route, secs, stops))
+            if not route or v < 0:
+                continue
+            # No MSG_TP here, so waiting buses (HHMM) are told apart by plausibility.
+            dep = hhmm_seconds(v)
+            if v < 500 or dep is None:
+                buses.append((route, v, stops, "RUN", 0))       # surely seconds
+            elif v / max(stops, 1) > 240:
+                # > 4 min per stop is not a driving estimate: a departure time.
+                bus = waiting_bus(route, v, stops, now_sod, stop_secs)
+                if bus:
+                    buses.append(bus)
+            elif -DEPARTED_GRACE <= until(dep, now_sod) <= 3 * 3600:
+                pass   # could be either; a blank beats a number that is 10 min off
+            else:
+                buses.append((route, v, stops, "RUN", 0))
         return buses
     except FetchError:
         raise
@@ -156,41 +264,68 @@ def parse_tago(text):
         raise FetchError("PARSE", "tago")
 
 
-def parse_daejeon(text):
+def parse_daejeon(text, now_sod=None, stop_secs=60, notes=None):
     err = gateway_error(text)
     if err:
         raise err
-    try:
-        root = ET.fromstring(text.lstrip())
-    except ET.ParseError:
-        raise FetchError("PARSE", "daejeon")
+    now_sod = now_kst_sod() if now_sod is None else now_sod
+    root = parse_xml(text)
     code = (root.findtext("./msgHeader/headerCd") or "").strip()
     if code == "4":          # 결과가 없습니다
         return []
     if code != "0":
-        raise FetchError("API", "dj" + (code or "unknown"))
+        raise FetchError("API", "dj" + safe_word(code or "unknown", 8))
     buses = []
     for it in root.iter("itemList"):
         route = (it.findtext("ROUTE_NO") or "").strip()
+        msg_tp = (it.findtext("MSG_TP") or "").strip()
         secs = to_int(it.findtext("EXTIME_SEC"))
+        mins = to_int(it.findtext("EXTIME_MIN"))
         stops = to_int(it.findtext("STATUS_POS"))
-        if route and secs >= 0:
-            buses.append((route, secs, stops))
+        if not route or secs < 0:
+            continue
+        if msg_tp in ("03", "06"):           # running / about to arrive: real seconds
+            buses.append((route, secs, stops, "RUN", 0))
+        elif msg_tp == "07":                 # at its terminal: EXTIME_SEC is HHMM
+            bus = waiting_bus(route, secs, stops, now_sod, stop_secs)
+            if bus:
+                buses.append(bus)
+        else:
+            if notes is not None:
+                notes.add("msg_tp=" + safe_word(msg_tp or "none", 8))
+            if mins >= 0 and abs(mins - secs / 60) <= 1.5:
+                buses.append((route, secs, stops, "RUN", 0))
+            else:
+                bus = waiting_bus(route, secs, stops, now_sod, stop_secs)
+                if bus:
+                    buses.append(bus)
     return buses
 
 
+def https_opener():
+    """HTTPS only: no redirects (a redirect to http:// would leak the key), no
+    proxies from the environment, no other URL schemes. TLS verification on."""
+    opener = urllib.request.OpenerDirector()
+    opener.add_handler(urllib.request.HTTPSHandler(context=ssl.create_default_context()))
+    opener.add_handler(urllib.request.HTTPDefaultErrorHandler())
+    opener.add_handler(urllib.request.HTTPErrorProcessor())
+    opener.add_handler(urllib.request.UnknownHandler())
+    return opener
+
+
 def http_get(url, params, timeout):
+    if not url.startswith("https://"):
+        raise FetchError("NET", "not_https")
     full = url + "?" + urllib.parse.urlencode(params)
     req = urllib.request.Request(full, headers={"User-Agent": "clock-rpi"})
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as r:
-            return r.read().decode("utf-8", "replace")
+        with https_opener().open(req, timeout=timeout) as r:
+            body = r.read(MAX_RESPONSE + 1)
     except urllib.error.HTTPError as e:
-        body = ""
         try:
-            body = e.read().decode("utf-8", "replace")
+            body = e.read(MAX_RESPONSE).decode("utf-8", "replace")
         except OSError:
-            pass
+            body = ""
         err = gateway_error(body)
         if err:
             raise err
@@ -199,8 +334,11 @@ def http_get(url, params, timeout):
         if e.code == 429:
             raise FetchError("LIMIT", "http429")
         raise FetchError("NET", "http%d" % e.code)
-    except (urllib.error.URLError, OSError) as e:
+    except (urllib.error.URLError, OSError, ValueError) as e:
         raise FetchError("NET", type(e).__name__)
+    if len(body) > MAX_RESPONSE:
+        raise FetchError("PARSE", "too_large")
+    return body.decode("utf-8", "replace")
 
 
 def service_key(conf):
@@ -212,7 +350,7 @@ def service_key(conf):
     return key
 
 
-def fetch_tago(conf):
+def fetch_tago(conf, notes):
     params = {
         "serviceKey": service_key(conf),
         "cityCode": conf["CITY_CODE"],
@@ -221,15 +359,17 @@ def fetch_tago(conf):
         "pageNo": "1",
         "_type": "json",
     }
-    return parse_tago(http_get(TAGO_URL, params, float(conf["TIMEOUT"])))
+    text = http_get(TAGO_URL, params, conf_number(conf, "TIMEOUT", 1.0, 8.0, float))
+    return parse_tago(text, None, conf_number(conf, "WAIT_STOP_SECS", 0, 300), notes)
 
 
-def fetch_daejeon(conf):
+def fetch_daejeon(conf, notes):
     params = {
         "serviceKey": service_key(conf),
         "BusStopID": conf["BUS_STOP_ID"],
     }
-    return parse_daejeon(http_get(DAEJEON_URL, params, float(conf["TIMEOUT"])))
+    text = http_get(DAEJEON_URL, params, conf_number(conf, "TIMEOUT", 1.0, 8.0, float))
+    return parse_daejeon(text, None, conf_number(conf, "WAIT_STOP_SECS", 0, 300), notes)
 
 
 PROVIDERS = {"tago": (fetch_tago, parse_tago), "daejeon": (fetch_daejeon, parse_daejeon)}
@@ -237,33 +377,47 @@ PROVIDERS = {"tago": (fetch_tago, parse_tago), "daejeon": (fetch_daejeon, parse_
 
 def select(buses):
     """Every route at the stop, soonest first, at most MAX_BUSES lines."""
-    cleaned = [(clean_route(route), secs, stops) for route, secs, stops in buses]
+    cleaned = [(clean_route(b[0]),) + tuple(b[1:]) for b in buses]
     return sorted(cleaned, key=lambda b: b[1])[:MAX_BUSES]
 
 
-def emit(out, buses, error=None):
+def emit(out, buses, error=None, via=None, notes=()):
     if error is not None:
-        out.write("ERR %s %s\n" % (error.kind, error.detail.replace(" ", "_") or "-"))
-    else:
-        out.write("OK %d\n" % len(buses))
+        out.write("ERR %s %s\n" % (safe_word(error.kind, 8), safe_word(error.detail)))
+        out.write("LABEL BUS\n")
+        return
+    out.write("OK %d\n" % len(buses))
     out.write("LABEL BUS\n")
-    if error is None:
-        for route, secs, stops in buses:
-            out.write("BUS %s %d %d\n" % (route, secs, stops))
+    if via:
+        out.write("VIA %s\n" % safe_word(via, 12))
+    for note in sorted(notes):
+        out.write("NOTE %s\n" % safe_word(note))
+    for route, secs, stops, kind, min_secs in buses:
+        if kind == "WAIT":
+            out.write("BUS %s %d %d WAIT %d\n" % (route, secs, stops, min_secs))
+        else:
+            out.write("BUS %s %d %d RUN\n" % (route, secs, stops))
 
 
 def run(argv, out):
-    if len(argv) == 4 and argv[1] == "--parse-file":
+    if len(argv) in (4, 6) and argv[1] == "--parse-file":
         provider, path = argv[2], argv[3]
         if provider not in PROVIDERS:
             out.write("ERR CONF unknown_provider\nLABEL BUS\n")
             return 2
+        now_sod = parse_hms(argv[5]) if len(argv) == 6 and argv[4] == "--now" else None
+        notes = set()
         try:
             with open(path, encoding="utf-8") as f:
-                buses = PROVIDERS[provider][1](f.read())
-            emit(out, select(buses))
+                buses = PROVIDERS[provider][1](f.read(), now_sod, 60, notes)
+            emit(out, select(buses), via=provider, notes=notes)
         except FetchError as e:
             emit(out, [], e)
+        return 0
+
+    # The clock drops root before running this; refuse to handle the key as root.
+    if hasattr(os, "geteuid") and os.geteuid() == 0:
+        emit(out, [], FetchError("CONF", "refuse_root"))
         return 0
 
     try:
@@ -277,15 +431,24 @@ def run(argv, out):
         if name not in PROVIDERS:
             last_error = FetchError("CONF", "unknown_provider")
             continue
+        notes = set()
         try:
-            emit(out, select(PROVIDERS[name][0](conf)))
+            buses = PROVIDERS[name][0](conf, notes)
+            emit(out, select(buses), via=name, notes=notes)
             return 0
         except FetchError as e:
-            sys.stderr.write("busfetch: %s failed: %s %s\n" % (name, e.kind, e.detail))
-            last_error = e
+            last_error = e   # the clock logs the final result; no per-attempt lines
     emit(out, [], last_error)
     return 0
 
 
+def main():
+    try:
+        return run(sys.argv, sys.stdout)
+    except Exception as e:  # never print a traceback (it could quote request details)
+        sys.stdout.write("ERR PARSE %s\nLABEL BUS\n" % safe_word(type(e).__name__))
+        return 0
+
+
 if __name__ == "__main__":
-    sys.exit(run(sys.argv, sys.stdout))
+    sys.exit(main())
