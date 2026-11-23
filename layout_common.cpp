@@ -71,6 +71,45 @@ void DrawCenteredText(rgb_matrix::Canvas *c, const Font &font, int center2, int 
                          s.c_str(), 0);
 }
 
+// A small bus (side view), as tall as the 5x8 digits (rows 1..6 of the top line).
+const char *const kBusIcon[] = {
+    ".#####.",
+    "#.#.#.#",
+    "#######",
+    "#######",
+    "#######",
+    ".#...#.",
+};
+const int kBusIconWidth = 7;
+const int kBusIconGap = 2;
+const int kBusIconTop = 1;
+const int kMaxRouteLineWidth = 25;  // wider (4-character routes) -> route only
+
+// Top line of the bus block: [bus] route, centered as one unit, so it is as
+// wide as the date "MM-DD" on the other side.
+void DrawRouteLine(rgb_matrix::Canvas *c, const Font &font, int center2, int baseline,
+                   const Color &color, const std::string &route) {
+    InkMeter m;
+    rgb_matrix::DrawText(&m, font, 0, font.baseline(), colors::kWhite, NULL, route.c_str(), 0);
+    const int text_width = m.hi >= m.lo ? m.hi - m.lo + 1 : 0;
+    const int width = kBusIconWidth + kBusIconGap + text_width;
+    if (text_width == 0 || width > kMaxRouteLineWidth) {
+        DrawCenteredText(c, font, center2, baseline, color, route);
+        return;
+    }
+    const int twice = center2 - width + 1;        // left ink column, doubled
+    const int left = twice >= 0 ? twice / 2 : -((1 - twice) / 2);
+    for (int row = 0; row < 6; row++) {
+        for (int col = 0; col < kBusIconWidth; col++) {
+            if (kBusIcon[row][col] == '#') {
+                c->SetPixel(left + col, kBusIconTop + row, color.r, color.g, color.b);
+            }
+        }
+    }
+    rgb_matrix::DrawText(c, font, left + kBusIconWidth + kBusIconGap - m.lo, baseline, color,
+                         NULL, route.c_str(), 0);
+}
+
 }  // namespace
 
 int TextWidth(const Font &font, const std::string &s) {
@@ -112,7 +151,7 @@ void DrawSideBus(rgb_matrix::Canvas *c, const ClockFonts &f, const struct tm &no
     rgb_matrix::DrawText(c, *f.large, CenteredX(*f.large, "00:00", kScreenCenter2), 13,
                          colors::kWhite, NULL, time_buf, 0);
 
-    // Route over minutes, centered at the mirror image of the date block.
-    DrawCenteredText(c, *f.small, kBusCenter2, 7, colors::kRoute, route);
+    // [bus] route over minutes, centered at the mirror image of the date block.
+    DrawRouteLine(c, *f.small, kBusCenter2, 7, colors::kRoute, route);
     if (show_text) DrawCenteredText(c, *f.small, kBusCenter2, 15, text_color, text);
 }
