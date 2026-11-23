@@ -44,8 +44,9 @@ void DrawDate(rgb_matrix::Canvas *c, const ClockFonts &f, const struct tm &now);
 // The original screen: date | HH:MM:SS.
 void DrawClassicClock(rgb_matrix::Canvas *c, const ClockFonts &f, const struct tm &now);
 
-// date | HH:MM | route over text, in the bus area (columns 71..95).
-// `show_text` false leaves the bottom line dark (blinking).
+// date | HH:MM | route over text, left-right symmetric: HH:MM centered on the
+// panel (column 47.5), route and text centered at column 80.5, the mirror image
+// of the date block (column 14.5). `show_text` false leaves the bottom line dark.
 void DrawSideBus(rgb_matrix::Canvas *c, const ClockFonts &f, const struct tm &now,
                  const std::string &route, const std::string &text,
                  const rgb_matrix::Color &text_color, bool show_text);

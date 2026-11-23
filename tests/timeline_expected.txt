@@ -1,135 +1,135 @@
 == mode 1, 6 routes, from boot
   0.0 [alternate] CLOCK
- 15.0 [alternate] BUS 1/1 11:26MIN 102:23MIN 104:23MIN 113:5MIN 117:23MIN 212:35MIN
+ 15.0 [alternate] BUS 1/1 11:26M 102:23M 104:23M 113:5M 117:23M 212:35M
  20.0 [alternate] CLOCK
- 35.0 [alternate] BUS 1/1 11:26MIN 102:22MIN 104:23MIN 113:5MIN 117:23MIN 212:35MIN
- 38.1 [alternate] BUS 1/1 11:26MIN 102:22MIN 104:23MIN 113:5MIN 117:22MIN 212:35MIN
+ 35.0 [alternate] BUS 1/1 11:26M 102:22M 104:23M 113:5M 117:23M 212:35M
+ 38.1 [alternate] BUS 1/1 11:26M 102:22M 104:23M 113:5M 117:22M 212:35M
  40.0 [alternate] CLOCK
- 55.0 [alternate] BUS 1/1 11:25MIN 102:22MIN 104:22MIN 113:5MIN 117:22MIN 212:34MIN
- 59.1 [alternate] BUS 1/1 11:25MIN 102:22MIN 104:22MIN 113:4MIN 117:22MIN 212:34MIN
+ 55.0 [alternate] BUS 1/1 11:25M 102:22M 104:22M 113:5M 117:22M 212:34M
+ 59.1 [alternate] BUS 1/1 11:25M 102:22M 104:22M 113:4M 117:22M 212:34M
  60.0 [alternate] CLOCK
 == mode 1, 8 routes (2 pages)
   0.0 [alternate] CLOCK
- 15.0 [alternate] BUS 1/2 11:26MIN 102:23MIN 104:23MIN 113:5MIN 117:23MIN 212:35MIN
- 20.0 [alternate] BUS 2/2 1002:7MIN B1:11MIN
+ 15.0 [alternate] BUS 1/2 11:26M 102:23M 104:23M 113:5M 117:23M 212:35M
+ 20.0 [alternate] BUS 2/2 1002:7M B1:11M
  25.0 [alternate] CLOCK
- 40.0 [alternate] BUS 1/2 11:26MIN 102:22MIN 104:23MIN 113:5MIN 117:22MIN 212:35MIN
- 40.1 [alternate] BUS 1/2 11:26MIN 102:22MIN 104:22MIN 113:5MIN 117:22MIN 212:35MIN
- 45.0 [alternate] BUS 2/2 1002:7MIN B1:10MIN
+ 40.0 [alternate] BUS 1/2 11:26M 102:22M 104:23M 113:5M 117:22M 212:35M
+ 40.1 [alternate] BUS 1/2 11:26M 102:22M 104:22M 113:5M 117:22M 212:35M
+ 45.0 [alternate] BUS 2/2 1002:7M B1:10M
 == mode 1, 113 passes at 37 s while its page is up
   0.0 [alternate] CLOCK
- 15.0 [alternate] BUS 1/1 11:26MIN 102:23MIN 104:23MIN 113:SOON 117:23MIN 212:35MIN
+ 15.0 [alternate] BUS 1/1 11:26M 102:23M 104:23M 113:SOON 117:23M 212:35M
  20.0 [alternate] CLOCK
- 35.0 [alternate] BUS 1/1 11:26MIN 102:22MIN 104:23MIN 113:SOON 117:23MIN 212:35MIN
- 37.1 [alternate] BUS 1/1 11:26MIN 102:22MIN 104:23MIN 117:23MIN 212:35MIN
- 38.1 [alternate] BUS 1/1 11:26MIN 102:22MIN 104:23MIN 117:22MIN 212:35MIN
+ 35.0 [alternate] BUS 1/1 11:26M 102:22M 104:23M 113:SOON 117:23M 212:35M
+ 37.1 [alternate] BUS 1/1 11:26M 102:22M 104:23M 117:23M 212:35M
+ 38.1 [alternate] BUS 1/1 11:26M 102:22M 104:23M 117:22M 212:35M
  40.0 [alternate] CLOCK
- 55.0 [alternate] BUS 1/1 11:25MIN 102:22MIN 104:22MIN 117:22MIN 212:34MIN
+ 55.0 [alternate] BUS 1/1 11:25M 102:22M 104:22M 117:22M 212:34M
  60.0 [alternate] CLOCK
 == mode 1, key error
   0.0 [alternate] CLOCK
  15.0 [alternate] BUS ERR KEY
  20.0 [alternate] CLOCK
 == mode 2, 6 routes
-  0.0 [rotate] SIDE 11 26MIN
-  3.0 [rotate] SIDE 102 23MIN
-  6.0 [rotate] SIDE 104 23MIN
-  9.0 [rotate] SIDE 113 5MIN
- 12.0 [rotate] SIDE 117 23MIN
- 15.0 [rotate] SIDE 212 35MIN
- 18.0 [rotate] SIDE 11 26MIN
+  0.0 [rotate] SIDE 11 26M
+  3.0 [rotate] SIDE 102 23M
+  6.0 [rotate] SIDE 104 23M
+  9.0 [rotate] SIDE 113 5M
+ 12.0 [rotate] SIDE 117 23M
+ 15.0 [rotate] SIDE 212 35M
+ 18.0 [rotate] SIDE 11 26M
 == mode 2, 102 passes at 31 s while it is on screen
-  0.0 [rotate] SIDE 11 26MIN
+  0.0 [rotate] SIDE 11 26M
   3.0 [rotate] SIDE 102 SOON
-  9.0 [rotate] SIDE 104 23MIN
- 12.0 [rotate] SIDE 11 26MIN
+  9.0 [rotate] SIDE 104 23M
+ 12.0 [rotate] SIDE 11 26M
  15.0 [rotate] SIDE 102 SOON
- 21.0 [rotate] SIDE 104 23MIN
- 24.0 [rotate] SIDE 11 26MIN
+ 21.0 [rotate] SIDE 104 23M
+ 24.0 [rotate] SIDE 11 26M
  27.0 [rotate] SIDE 102 SOON
- 31.1 [rotate] SIDE 104 23MIN
- 34.1 [rotate] SIDE 11 26MIN
- 37.1 [rotate] SIDE 104 23MIN
+ 31.1 [rotate] SIDE 104 23M
+ 34.1 [rotate] SIDE 11 26M
+ 37.1 [rotate] SIDE 104 23M
 == mode 3, 102 counts down
-  0.0 [fixed] SIDE 102 3MIN
- 20.1 [fixed] SIDE 102 2MIN
- 80.1 [fixed] SIDE 102 1MIN
+  0.0 [fixed] SIDE 102 3M
+ 20.1 [fixed] SIDE 102 2M
+ 80.1 [fixed] SIDE 102 1M
 140.1 [fixed] SIDE 102 SOON
 == switches: 2 -> 1 at 7 s -> 3 at 12 s -> 0 at 15 s
-  0.0 [rotate] SIDE 11 26MIN
-  3.0 [rotate] SIDE 102 23MIN
-  6.0 [rotate] SIDE 104 23MIN
-  7.0 [alternate] BUS 1/1 11:26MIN 102:23MIN 104:23MIN 113:5MIN 117:23MIN 212:35MIN
- 12.0 [fixed] SIDE 102 23MIN
+  0.0 [rotate] SIDE 11 26M
+  3.0 [rotate] SIDE 102 23M
+  6.0 [rotate] SIDE 104 23M
+  7.0 [alternate] BUS 1/1 11:26M 102:23M 104:23M 113:5M 117:23M 212:35M
+ 12.0 [fixed] SIDE 102 23M
  15.0 [off] CLOCK
 == mode 2, real mix: 3..15 min are 102 104 113, 10 s each
-  0.0 [rotate] SIDE 102 8MIN
-  2.1 [rotate] SIDE 102 7MIN
- 10.0 [rotate] SIDE 104 14MIN
- 20.0 [rotate] SIDE 113 8MIN
+  0.0 [rotate] SIDE 102 8M
+  2.1 [rotate] SIDE 102 7M
+ 10.0 [rotate] SIDE 104 14M
+ 20.0 [rotate] SIDE 113 8M
 == mode 1, real mix: 8 s bus page
   0.0 [alternate] CLOCK
- 15.0 [alternate] BUS 1/1 11:58MIN 102:7MIN 104:14MIN 113:8MIN 117:25MIN 212:20MIN
+ 15.0 [alternate] BUS 1/1 11:58M 102:7M 104:14M 113:8M 117:25M 212:20M
  23.0 [alternate] CLOCK
 == mode 3, waiting 102 counts down to its drive time and stays
-  0.0 [fixed] SIDE 102 3MIN
- 20.1 [fixed] SIDE 102 2MIN
+  0.0 [fixed] SIDE 102 3M
+ 20.1 [fixed] SIDE 102 2M
 == mode 3, waiting 102 leaves, arrives, next one waits
-  0.0 [fixed] SIDE 102 8MIN
-  2.1 [fixed] SIDE 102 7MIN
- 62.1 [fixed] SIDE 102 6MIN
-130.1 [fixed] SIDE 102 5MIN
+  0.0 [fixed] SIDE 102 8M
+  2.1 [fixed] SIDE 102 7M
+ 62.1 [fixed] SIDE 102 6M
+130.1 [fixed] SIDE 102 5M
 180.0 [fixed] SIDE 102 SOON
-239.1 [fixed] SIDE 102 17MIN
+239.1 [fixed] SIDE 102 17M
 == mode 2, one route within 15 min: no rotation
-  0.0 [rotate] SIDE 212 5MIN
-  0.1 [rotate] SIDE 212 4MIN
+  0.0 [rotate] SIDE 212 5M
+  0.1 [rotate] SIDE 212 4M
 == mode 2, none within 15 min: soonest bus stays
-  0.0 [rotate] SIDE 212 20MIN (next)
-  0.1 [rotate] SIDE 212 19MIN (next)
+  0.0 [rotate] SIDE 212 20M (next)
+  0.1 [rotate] SIDE 212 19M (next)
 == mode 2, joins at 15 min, stays at 16, leaves at 17
-  0.0 [rotate] SIDE 212 16MIN (next)
-  5.1 [rotate] SIDE 212 15MIN
- 10.0 [rotate] SIDE 212 16MIN
- 20.0 [rotate] SIDE 212 17MIN (next)
+  0.0 [rotate] SIDE 212 16M (next)
+  5.1 [rotate] SIDE 212 15M
+ 10.0 [rotate] SIDE 212 16M
+ 20.0 [rotate] SIDE 212 17M (next)
 == mode 2 --min 0, a SOON route stays twice as long (20 s)
   0.0 [rotate] SIDE 102 SOON
- 20.0 [rotate] SIDE 104 4MIN
+ 20.0 [rotate] SIDE 104 4M
  30.0 [rotate] SIDE 102 SOON
 == mode 2, buses under 3 min and SOON are skipped (3..15 min)
-  0.0 [rotate] SIDE 113 3MIN
- 10.0 [rotate] SIDE 212 9MIN
- 20.0 [rotate] SIDE 113 3MIN
- 20.1 [rotate] SIDE 212 9MIN
+  0.0 [rotate] SIDE 113 3M
+ 10.0 [rotate] SIDE 212 9M
+ 20.0 [rotate] SIDE 113 3M
+ 20.1 [rotate] SIDE 212 9M
 == mode 2, only close buses left: original clock
   0.0 [rotate] CLOCK
 == next bus: 102 SOON -> the one after it (+8 min)
-  0.0 [rotate] SIDE 102 9MIN (2nd)
-  5.1 [rotate] SIDE 102 8MIN (2nd)
- 10.0 [rotate] SIDE 212 9MIN
- 20.0 [rotate] SIDE 102 8MIN (2nd)
+  0.0 [rotate] SIDE 102 9M (2nd)
+  5.1 [rotate] SIDE 102 8M (2nd)
+ 10.0 [rotate] SIDE 212 9M
+ 20.0 [rotate] SIDE 102 8M (2nd)
 == next bus: 102 leaving the terminal now (2MIN) -> next
-  0.0 [rotate] SIDE 102 10MIN (2nd)
+  0.0 [rotate] SIDE 102 10M (2nd)
 == next bus: none after the last departure (from 22:36)
   0.0 [rotate] CLOCK
 == next bus: still before the last departure (from 22:27)
-  0.0 [rotate] SIDE 102 9MIN (2nd)
+  0.0 [rotate] SIDE 102 9M (2nd)
 == next bus: long headway (104, 23 min) is not used
   0.0 [rotate] CLOCK
 == next bus: 102 passes, then new data arrives at 90 s
-  0.0 [rotate] SIDE 102 8MIN (2nd)
- 20.1 [rotate] SIDE 102 7MIN (2nd)
- 80.1 [rotate] SIDE 102 6MIN (2nd)
- 90.0 [rotate] SIDE 102 8MIN
+  0.0 [rotate] SIDE 102 8M (2nd)
+ 20.1 [rotate] SIDE 102 7M (2nd)
+ 80.1 [rotate] SIDE 102 6M (2nd)
+ 90.0 [rotate] SIDE 102 8M
 == next bus: mode 3 shows it instead of --
   0.0 [fixed] SIDE 102 SOON
- 50.1 [fixed] SIDE 102 7MIN (2nd)
- 80.1 [fixed] SIDE 102 6MIN (2nd)
- 90.0 [fixed] SIDE 102 8MIN
+ 50.1 [fixed] SIDE 102 7M (2nd)
+ 80.1 [fixed] SIDE 102 6M (2nd)
+ 90.0 [fixed] SIDE 102 8M
 == next bus: a real second bus in the answer (no headway)
-  0.0 [rotate] SIDE 102 11MIN (2nd)
+  0.0 [rotate] SIDE 102 11M (2nd)
 == quiet hours start at 01:00:00 (mode 2, from 00:59:55)
-  0.0 [rotate] SIDE 113 5MIN
+  0.0 [rotate] SIDE 113 5M
   5.0 [rotate] CLOCK QUIET
 == quiet hours end at 05:00:00 (mode 1, key error, from 04:59:50)
   0.0 [alternate] CLOCK QUIET

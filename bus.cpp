@@ -179,7 +179,7 @@ std::string MinutesText(const BusEntry &e) {
     switch (e.style) {
     case EntryStyle::kSoon:   return "SOON";
     case EntryStyle::kPassed: return "--";
-    default:                  return std::to_string(e.mins) + "MIN";
+    default:                  return std::to_string(e.mins) + "M";
     }
 }
 

@@ -11,7 +11,10 @@
 #include "layout_common.h"
 
 #include <ctype.h>
+#include <limits.h>
 #include <string.h>
+
+#include <algorithm>
 
 using rgb_matrix::Color;
 using rgb_matrix::Font;
@@ -31,16 +34,41 @@ const Color kWait(170, 120, 255);
 
 namespace {
 
-// Bus area: columns 71..95 (25 px = five 5x8 characters), right of "HH:MM".
-const int kBusLeft = 71;
-const int kBusWidth = 25;
+// Side-bus screen, left-right symmetric around the middle of the 96 px panel.
+// Centers are given doubled so half pixels can be expressed (95 = column 47.5).
+const int kScreenCenter2 = 95;               // HH:MM ink centered on column 47.5
+const int kDateCenter2 = 29;                 // date/weekday ink center (column 14.5,
+                                             // where DrawDate has always put it)
+const int kBusCenter2 = 2 * kScreenCenter2 - kDateCenter2;  // mirror: column 80.5
 
-// Draws `s` centered in the bus area.
-void DrawBusText(rgb_matrix::Canvas *c, const Font &font, int baseline,
-                 const Color &color, const std::string &s) {
-    int x = kBusLeft + (kBusWidth - TextWidth(font, s) + 1) / 2;
-    if (x < kBusLeft) x = kBusLeft;
-    rgb_matrix::DrawText(c, font, x, baseline, color, NULL, s.c_str(), 0);
+// A canvas that only records which columns get ink.
+class InkMeter : public rgb_matrix::Canvas {
+public:
+    int width() const override { return 1024; }
+    int height() const override { return 64; }
+    void SetPixel(int x, int /*y*/, uint8_t, uint8_t, uint8_t) override {
+        lo = std::min(lo, x);
+        hi = std::max(hi, x);
+    }
+    void Clear() override {}
+    void Fill(uint8_t, uint8_t, uint8_t) override {}
+    int lo = INT_MAX;
+    int hi = INT_MIN;
+};
+
+// x that puts the ink of `s` centered on column center2 / 2 (ties go left).
+int CenteredX(const Font &font, const std::string &s, int center2) {
+    InkMeter m;
+    rgb_matrix::DrawText(&m, font, 0, font.baseline(), colors::kWhite, NULL, s.c_str(), 0);
+    if (m.hi < m.lo) return center2 / 2;
+    const int twice = center2 - m.lo - m.hi;
+    return twice >= 0 ? twice / 2 : -((1 - twice) / 2);
+}
+
+void DrawCenteredText(rgb_matrix::Canvas *c, const Font &font, int center2, int baseline,
+                      const Color &color, const std::string &s) {
+    rgb_matrix::DrawText(c, font, CenteredX(font, s, center2), baseline, color, NULL,
+                         s.c_str(), 0);
 }
 
 }  // namespace
@@ -78,10 +106,13 @@ void DrawSideBus(rgb_matrix::Canvas *c, const ClockFonts &f, const struct tm &no
                  const Color &text_color, bool show_text) {
     char time_buf[12];
     DrawDate(c, f, now);
-    // HH:MM occupies columns 30..69.
+    // HH:MM in the exact middle; placed by the ink of "00:00" so it does not
+    // shift when the digits change.
     strftime(time_buf, sizeof(time_buf), "%H:%M", &now);
-    rgb_matrix::DrawText(c, *f.large, 30, 13, colors::kWhite, NULL, time_buf, 0);
+    rgb_matrix::DrawText(c, *f.large, CenteredX(*f.large, "00:00", kScreenCenter2), 13,
+                         colors::kWhite, NULL, time_buf, 0);
 
-    DrawBusText(c, *f.small, 7, colors::kRoute, route);
-    if (show_text) DrawBusText(c, *f.small, 15, text_color, text);
+    // Route over minutes, centered at the mirror image of the date block.
+    DrawCenteredText(c, *f.small, kBusCenter2, 7, colors::kRoute, route);
+    if (show_text) DrawCenteredText(c, *f.small, kBusCenter2, 15, text_color, text);
 }
