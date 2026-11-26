@@ -116,7 +116,7 @@ BusBoard ComputeBusBoard(const BusSnapshot &snap, double now, const struct tm &w
 // Route order on screen: numbers by value first ("11" < "102"), then text.
 bool RouteLess(const std::string &a, const std::string &b);
 
-// "23MIN", "SOON" or "--".
+// "23M", "SOON" or "--".
 std::string MinutesText(const BusEntry &e);
 
 // Entry for `route`, or NULL.

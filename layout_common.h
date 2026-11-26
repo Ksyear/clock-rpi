@@ -38,14 +38,17 @@ extern const rgb_matrix::Color kWait;     // lavender: bus still at its terminal
 
 int TextWidth(const rgb_matrix::Font &font, const std::string &s);
 
-// Date "MM-DD" and weekday (Sunday red, Saturday blue, weekdays green), columns 3..27.
+// Date "MM-DD" 3 dots from the left edge and the weekday centered under it
+// (Sunday red, Saturday blue, weekdays green).
 void DrawDate(rgb_matrix::Canvas *c, const ClockFonts &f, const struct tm &now);
 
 // The original screen: date | HH:MM:SS.
 void DrawClassicClock(rgb_matrix::Canvas *c, const ClockFonts &f, const struct tm &now);
 
-// date | HH:MM | route over text, in the bus area (columns 71..95).
-// `show_text` false leaves the bottom line dark (blinking).
+// date | HH:MM | [bus icon] route over text, laid out from the font sizes:
+// 3 dots at both edges, the same gap on both sides of HH:MM (big font), so with
+// the stock fonts 3 | date 3..25 | 3 | HH:MM 29..67 | 3 | bus 71..92 | 3.
+// `show_text` false leaves the bottom line dark.
 void DrawSideBus(rgb_matrix::Canvas *c, const ClockFonts &f, const struct tm &now,
                  const std::string &route, const std::string &text,
                  const rgb_matrix::Color &text_color, bool show_text);
