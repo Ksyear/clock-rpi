@@ -16,7 +16,8 @@
  *   - one route in range: no rotation at all
  *   - none in range: the soonest bus stays up (changes only if another one is
  *     at least 2 minutes sooner), tag "(next)"
- *   - no bus at all: the original HH:MM:SS clock
+ *   - no bus at all: "BUS --" ("BUS ..." until the first answer); the layout
+ *     never changes to the original HH:MM:SS clock (only in quiet hours)
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -58,8 +59,7 @@ std::string RotateScreen::Draw(rgb_matrix::Canvas *c, const ClockFonts &f, const
     }
     if (live.empty()) {
         Reset();
-        DrawClassicClock(c, f, t);
-        return "CLOCK";
+        return DrawSideIdle(c, f, t, board, "BUS");
     }
     auto find = [&live](const std::string &route) -> const Live * {
         for (const Live &l : live) {
@@ -92,8 +92,7 @@ std::string RotateScreen::Draw(rgb_matrix::Canvas *c, const ClockFonts &f, const
         }
         if (soonest == NULL) {
             Reset();
-            DrawClassicClock(c, f, t);
-            return "CLOCK";
+            return DrawSideIdle(c, f, t, board, "BUS");
         }
         shown = find(current_);
         if (shown == NULL || shown->pick.estimated || soonest->pick.mins <= shown->pick.mins - 2) {

@@ -10,6 +10,13 @@
 
 #include "screen.h"
 
+std::string DrawSideIdle(rgb_matrix::Canvas *c, const ClockFonts &f, const struct tm &t,
+                         const BusBoard &board, const std::string &route) {
+    const char *text = board.state == BoardState::kWaiting ? "..." : "--";
+    DrawSideBus(c, f, t, route, text, colors::kNone, true);
+    return "SIDE " + route + " " + text;
+}
+
 std::string ClockScreen::Draw(rgb_matrix::Canvas *c, const ClockFonts &f, const struct tm &t,
                               const BusSnapshot &snap, const DisplaySettings &s, double now) {
     const BusBoard board = ComputeBusBoard(snap, now, t);

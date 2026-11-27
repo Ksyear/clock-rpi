@@ -320,10 +320,12 @@ BusBoard ComputeBusBoard(const BusSnapshot &snap, double now, const struct tm &w
         if (hard_error) {
             board.state = BoardState::kError;
             board.error = snap.status;
+        } else if (!snap.has_data && snap.status != BusStatus::kNoConfig) {
+            board.state = BoardState::kWaiting;  // starting up, or no answer yet
         }
-        return board;  // otherwise hidden: classic clock
+        return board;  // otherwise hidden: nothing to show
     }
-    if (snap.buses.empty()) return board;  // no bus in service: classic clock
+    if (snap.buses.empty()) return board;  // no bus in service
 
     // The service day: 00:00-03:59 still belongs to the previous day's timetable.
     int sod = wall.tm_hour * 3600 + wall.tm_min * 60 + wall.tm_sec;
@@ -410,7 +412,9 @@ FeedPause FeedPauseFor(const DisplaySettings &s, int secs_of_day, bool clock_ok)
 BusFeed::BusFeed(const std::string &helper_cmd, const std::string &conf_path,
                  double start_delay, const std::string &routes_cmd)
     : helper_cmd_(helper_cmd), conf_path_(conf_path), start_delay_(start_delay),
-      routes_cmd_(routes_cmd) {}
+      routes_cmd_(routes_cmd) {
+    snap_.status = BusStatus::kWaiting;  // the screens show "..." until the first answer
+}
 
 void BusFeed::Start() {
     {

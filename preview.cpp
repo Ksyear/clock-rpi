@@ -145,6 +145,13 @@ BusSnapshot Data(double age, const std::vector<BusArrival> &buses) {
     return s;
 }
 
+// The feed's snapshot from the start until its first helper run.
+BusSnapshot Starting() {
+    BusSnapshot s;
+    s.status = BusStatus::kWaiting;
+    return s;
+}
+
 BusSnapshot ErrorSnap(BusStatus status) {
     BusSnapshot s;
     s.status = status;
@@ -246,11 +253,13 @@ void Stills(const Fonts &fonts) {
     Still(fonts, "212 data 200 s old (dimmed)", Data(200, {{"212", 2147, 24}}), Mode(DisplayMode::kRotate));
     Still(fonts, "4-character route, 99 min", Data(0, {{"1002", 9000, 40}}), Mode(DisplayMode::kRotate));
     Still(fonts, "key error", ErrorSnap(BusStatus::kAuthError), Mode(DisplayMode::kRotate));
-    Still(fonts, "no bus in service (classic clock)", Data(0, {}), Mode(DisplayMode::kRotate));
+    Still(fonts, "starting, no answer yet (BUS ...)", Starting(), Mode(DisplayMode::kRotate));
+    Still(fonts, "no bus in service (BUS --)", Data(0, {}), Mode(DisplayMode::kRotate));
 
     // mode 3 (the earlier single-route screen)
     const DisplaySettings fixed = Mode(DisplayMode::kFixed);
-    Still(fonts, "no bus.conf (classic clock)", BusSnapshot(), fixed);
+    Still(fonts, "starting, no answer yet (102 ...)", Starting(), fixed);
+    Still(fonts, "no bus.conf (102 --)", BusSnapshot(), fixed);
     Still(fonts, "waiting at the terminal, 23 min", Data(0, {{"102", 1409, 2}}), fixed, 0, 23, 1);
     Still(fonts, "3 min, 4 stops", Data(0, {{"102", 200, 4}}), fixed, 0, 22, 0);
     Still(fonts, "12 min, data 200 s old (dimmed)", Data(200, {{"102", 920, 6}}), fixed);
@@ -258,9 +267,9 @@ void Stills(const Fonts &fonts) {
     Still(fonts, "1 stop left: SOON (blink on)", Data(0, {{"102", 150, 1}}), fixed);
     Still(fonts, "1 stop left: SOON (blink off)", Data(0, {{"102", 150, 1}}), fixed, 0.5);
     Still(fonts, "bus passed, waiting for new data", Data(60, {{"102", 10, 1}}), fixed);
-    Still(fonts, "102 not at the stop now (classic clock)", Data(0, {{"104", 300, 3}}), fixed);
+    Still(fonts, "102 not at the stop now (102 --)", Data(0, {{"104", 300, 3}}), fixed);
     Still(fonts, "key not registered", ErrorSnap(BusStatus::kAuthError), fixed);
-    Still(fonts, "data older than 300 s (classic clock)", Data(301, {{"102", 900, 5}}), fixed);
+    Still(fonts, "data older than 300 s (102 --)", Data(301, {{"102", 900, 5}}), fixed);
 
     // buses still at their terminal (lavender), from a real response
     StillBusPage(fonts, "mixed: 102/104/117/11 at the terminal", Fetched(kMixed), 0, false);
@@ -388,7 +397,7 @@ void Timelines(const Fonts &fonts, bool text_only) {
     Timeline(fonts, text_only, "mode 2, buses under 3 min and SOON are skipped (3..15 min)",
              Data(0, {{"102", 50, 1}, {"104", 179, 3}, {"113", 200, 4}, {"212", 600, 8}}),
              Mode(DisplayMode::kRotate), 40);
-    Timeline(fonts, text_only, "mode 2, only close buses left: original clock",
+    Timeline(fonts, text_only, "mode 2, only close buses left: BUS --",
              Data(0, {{"102", 50, 1}, {"104", 170, 3}}), Mode(DisplayMode::kRotate), 5);
 
     // Next bus of short-headway routes (102: every 8 min on Saturdays).
@@ -417,6 +426,18 @@ void Timelines(const Fonts &fonts, bool text_only) {
     Timeline(fonts, text_only, "next bus: a real second bus in the answer (no headway)",
              Fetched("OK 2\nLABEL BUS\nBUS 102 60 1 RUN\nBUS 102 700 2 WAIT 120\n"),
              Mode(DisplayMode::kRotate), 5);
+
+    // From the start: the mode's own layout right away, never the original clock.
+    const std::string first = "OK 2\nLABEL BUS\nBUS 113 330 4 RUN\nBUS 212 630 8 RUN\n";
+    Timeline(fonts, text_only, "mode 2 from the start: BUS ... until the first answer (20 s)",
+             Starting(), Mode(DisplayMode::kRotate), 25, {}, {{20, first}});
+    Timeline(fonts, text_only, "mode 3 from the start: 102 ... until the first answer (20 s)",
+             Starting(), Mode(DisplayMode::kFixed), 25, {},
+             {{20, "OK 1\nLABEL BUS\nBUS 102 400 3 RUN\n"}});
+    Timeline(fonts, text_only, "mode 2 from the start, network not up yet: BUS ... stays",
+             Starting(), Mode(DisplayMode::kRotate), 40, {}, {{20, "ERR NET timeout\n"}});
+    Timeline(fonts, text_only, "mode 1 from the start: the clock first (unchanged)",
+             Starting(), Mode(DisplayMode::kAlternate), 25, {}, {{20, first}});
 
     // Quiet hours (default 01:00-05:00).
     Timeline(fonts, text_only, "quiet hours start at 01:00:00 (mode 2, from 00:59:55)",

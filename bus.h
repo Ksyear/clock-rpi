@@ -59,8 +59,9 @@ struct BusSnapshot {
 
 // What the screens show: one entry per route, sorted by RouteLess().
 enum class BoardState {
-    kHidden,  // nothing to show: draw the classic clock
-    kData,    // `entries` is valid
+    kHidden,   // nothing to show (mode 1: the clock; modes 2/3: "--" in the bus area)
+    kWaiting,  // no answer since the start yet (modes 2/3: "..." in the bus area)
+    kData,     // `entries` is valid
     kError,   // key or traffic-limit problem and no usable data
 };
 
@@ -167,7 +168,7 @@ private:
     double next_at_ = 0;           // MonotonicSeconds() of the next allowed run
     int runs_ = 0;
     int calls_today_ = 0;
-    BusSnapshot snap_;
+    BusSnapshot snap_;             // status kWaiting until the first helper run
 };
 
 #endif  // CLOCK_BUS_H

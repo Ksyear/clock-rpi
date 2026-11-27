@@ -128,8 +128,8 @@ int main(int argc, char *argv[]) {
     settings.Poll(MonotonicSeconds());
 
     // Bus arrivals are fetched by ./busfetch.py in a background thread, so the
-    // network never blocks this loop. Without ./bus.conf the screen stays the
-    // classic clock. Relative paths are used on purpose: after CreateFromOptions()
+    // network never blocks this loop. Without ./bus.conf there is no bus data
+    // (modes 2/3 show "--"). Relative paths are used on purpose: after CreateFromOptions()
     // the process runs as `daemon`, which can only reach the working directory
     // (it cannot pass through /home/clock). The script goes in on stdin because
     // python3 opens a script given by name through its absolute path.

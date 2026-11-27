@@ -51,7 +51,7 @@ private:
 // A route joins at <= within minutes and leaves at >= within + 2, so a bus near
 // the threshold does not flicker in and out. Buses less than rotate_min minutes
 // away (and SOON ones) are left out as too close to catch. With no route in
-// range the soonest remaining bus is shown without rotating; with none, the clock.
+// range the soonest remaining bus is shown without rotating; with none, "BUS --".
 class RotateScreen {
 public:
     void Reset();
@@ -63,6 +63,12 @@ private:
     std::string current_;  // tracked by name, so a vanished route is skipped cleanly
     double since_ = 0;
 };
+
+// Modes 2/3 with nothing to show keep their layout (they never fall back to the
+// classic clock, so the screen looks the same from the moment the clock starts):
+// "..." until the first answer arrives, "--" otherwise, in grey.
+std::string DrawSideIdle(rgb_matrix::Canvas *c, const ClockFonts &f, const struct tm &t,
+                         const BusBoard &board, const std::string &route);
 
 // Mode 3: the right-hand bus area always shows s.route.
 std::string DrawFixedScreen(rgb_matrix::Canvas *c, const ClockFonts &f, const struct tm &t,

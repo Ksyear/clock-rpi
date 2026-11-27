@@ -75,7 +75,8 @@ std::string AlternateScreen::Draw(rgb_matrix::Canvas *c, const ClockFonts &f,
     int page = 0;
     if (in_bus_) {
         page = static_cast<int>((now - phase_start_) / s.alt_bus_secs);
-        const bool usable = error_page_ ? board.state != BoardState::kHidden
+        const bool usable = error_page_ ? (board.state == BoardState::kError ||
+                                           board.state == BoardState::kData)
                                         : board.state == BoardState::kData;
         if (!usable || page >= pages_) {
             in_bus_ = false;
